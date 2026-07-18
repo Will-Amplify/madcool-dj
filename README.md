@@ -28,6 +28,22 @@ Roon Core runs on Simon (`ROON_HOST=100.109.124.125`). First connection from thi
 
 Run `./scripts/make-fixtures.sh` to slice ~90s WAV clips from source mixes under `MUSIC_ROOT`. Generated `.wav` files stay local (gitignored); only `fixtures/clips/.gitkeep` is tracked.
 
+## Dashboard
+
+`dashboard/` is a small Vite + vanilla TypeScript control surface: dual decks (title, playing state, position, BPM when cached analysis exists), 5-band meters, a crossfader, an upcoming-plan card, and an agent/activity log fed by every `/v1/live` WebSocket event. Dark charcoal surface, teal live accents — no purple-gradient chrome.
+
+Build it once and `dj-control` serves it automatically:
+
+```bash
+cd dashboard && npm i && npm run build
+```
+
+`control/src/routes.ts` serves `dashboard/dist` as static files whenever that directory exists (Hono `serveStatic`), so once built, the dashboard is just `http://<control-host>:8787/`. Nothing changes on the control side if you skip the build — the route is a no-op until `dashboard/dist` shows up.
+
+For dashboard-only iteration, `cd dashboard && npm run dev` runs Vite on `:5173` and proxies `/v1/*` (HTTP + WebSocket) to `dj-control` on `:8787`. The dashboard always opens its live WebSocket directly at `ws://<page-host>:8787/v1/live`.
+
+If `DJ_TOKEN` is set, paste it into the dashboard's **token** field (top right) — it's sent as `Authorization: Bearer` on REST calls and as `?token=` on the WebSocket, since browsers can't set custom headers on `new WebSocket(...)`.
+
 ## Listen smoke
 
 Manual check that the mixer actually reaches the SXW DAC on tom-1 (no automated hardware test — `test_mixer_block.py` covers the math without a sound card):

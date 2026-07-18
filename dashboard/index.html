@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MadCool DJ — control surface</title>
+  </head>
+  <body>
+    <div class="app">
+      <header class="hero">
+        <div class="hero-row">
+          <div class="brand">
+            <span class="brand-mark" aria-hidden="true"></span>
+            <h1>MadCool<span class="accent">DJ</span></h1>
+          </div>
+          <div class="hero-controls">
+            <label class="token-field">
+              <span>token</span>
+              <input id="token-input" type="password" placeholder="DJ_TOKEN" autocomplete="off" spellcheck="false" />
+            </label>
+            <div id="conn-badge" class="badge badge--off">
+              <span class="dot"></span>
+              <span class="badge-label">control&nbsp;ws</span>
+            </div>
+          </div>
+        </div>
+        <p class="hero-tagline">Dual-deck autopilot for the endless search for perfect signal.</p>
+      </header>
+
+      <section class="transport" aria-label="Transport controls">
+        <button id="btn-load-fixtures" class="btn">Load fixtures</button>
+        <button id="btn-play-a" class="btn">Play&nbsp;A</button>
+        <button id="btn-play-b" class="btn">Play&nbsp;B</button>
+        <button id="btn-autopilot" class="btn btn--toggle">Enable autopilot</button>
+        <button id="btn-claim" class="btn">Claim device</button>
+        <span id="transport-status" class="transport-status"></span>
+      </section>
+
+      <section class="deck-rig" aria-label="Decks and mixer">
+        <article class="deck" id="deck-a" data-deck="a">
+          <header class="deck-head">
+            <span class="deck-tag">A</span>
+            <span class="deck-state" id="deck-a-state">idle</span>
+          </header>
+          <p class="deck-path" id="deck-a-path">no track loaded</p>
+          <div class="deck-meta">
+            <div class="meta-item">
+              <span class="meta-label">bpm</span>
+              <span class="meta-value" id="deck-a-bpm">&mdash;</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">position</span>
+              <span class="meta-value" id="deck-a-pos">0:00</span>
+            </div>
+          </div>
+          <div class="bands" id="deck-a-bands" aria-label="Deck A band energy"></div>
+        </article>
+
+        <div class="mixer-core">
+          <div class="crossfader-block">
+            <div class="crossfader-labels">
+              <span>A</span>
+              <span>B</span>
+            </div>
+            <input id="crossfader" type="range" min="0" max="1" step="0.01" value="0.5" aria-label="Crossfader" />
+            <div class="crossfader-value" id="crossfader-value">0.50</div>
+          </div>
+          <div class="mixer-status">
+            <div class="meta-item">
+              <span class="meta-label">autopilot</span>
+              <span class="meta-value" id="autopilot-state">off</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">engine</span>
+              <span class="meta-value" id="engine-version">&mdash;</span>
+            </div>
+          </div>
+        </div>
+
+        <article class="deck" id="deck-b" data-deck="b">
+          <header class="deck-head">
+            <span class="deck-tag">B</span>
+            <span class="deck-state" id="deck-b-state">idle</span>
+          </header>
+          <p class="deck-path" id="deck-b-path">no track loaded</p>
+          <div class="deck-meta">
+            <div class="meta-item">
+              <span class="meta-label">bpm</span>
+              <span class="meta-value" id="deck-b-bpm">&mdash;</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">position</span>
+              <span class="meta-value" id="deck-b-pos">0:00</span>
+            </div>
+          </div>
+          <div class="bands" id="deck-b-bands" aria-label="Deck B band energy"></div>
+        </article>
+      </section>
+
+      <section class="lower-grid">
+        <article class="panel plan-card">
+          <h2>Upcoming plan</h2>
+          <div id="plan-body" class="plan-body">
+            <p class="plan-empty">No transition planned yet.</p>
+          </div>
+        </article>
+
+        <article class="panel log-card">
+          <h2>Activity log</h2>
+          <div id="log-body" class="log-body" aria-live="polite"></div>
+        </article>
+      </section>
+
+      <footer class="foot">
+        <span>MadCool DJ &middot; control surface</span>
+      </footer>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

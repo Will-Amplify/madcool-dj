@@ -5,6 +5,11 @@
  * can probe it without a token.
  */
 
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { z } from "zod";
 
@@ -14,6 +19,10 @@ const cmdSchema = z.object({
   cmd: z.string().min(1),
   params: z.record(z.unknown()).optional(),
 });
+
+// control/src/routes.ts (or control/dist/routes.js, same depth) -> repo root.
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const DASHBOARD_DIST = join(__dirname, "..", "..", "dashboard", "dist");
 
 export function createApp(): Hono {
   const app = new Hono();
@@ -63,6 +72,14 @@ export function createApp(): Hono {
       return c.json({ ok: false, error: errorMessage(err) }, 502);
     }
   });
+
+  // Dashboard: serve the built Vite app if it exists (`cd dashboard && npm
+  // run build`). Registered last so it never shadows /health or /v1/*, and
+  // skipped entirely when the dashboard hasn't been built (fresh clone,
+  // engine/control-only dev, CI) so it stays a silent no-op.
+  if (existsSync(DASHBOARD_DIST)) {
+    app.use("/*", serveStatic({ root: DASHBOARD_DIST }));
+  }
 
   return app;
 }
