@@ -1,0 +1,14 @@
+.superpowers/
+.env
+.env.*
+!.env.example
+node_modules/
+control/dist/
+dashboard/dist/
+engine/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+.DS_Store
