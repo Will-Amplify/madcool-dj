@@ -37,6 +37,8 @@ def start_stream(
     exactly `DualDeckMixer.mix_block`'s signature, so the common call is
     `start_stream(mixer.mix_block)`.
     """
+    claim_default_sink()
+
     import sounddevice as sd
 
     def _sd_callback(outdata, frames, time_info, status):  # noqa: ANN001
