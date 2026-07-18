@@ -38,6 +38,7 @@ def main(argv: list[str] | None = None) -> None:
 
     handler = EngineCommandHandler()
     server = EngineProtocolServer(args.sock, handler.dispatch)
+    handler.broadcast = server.broadcast
     server.start()
     logger.info("listening on %s", args.sock)
 

@@ -1,9 +1,9 @@
 """Command dispatch: routes protocol requests onto a `DualDeckMixer`, the
-analyzer, and a simple in-memory library index.
+analyzer, the autopilot planner, and a simple in-memory library index.
 
-Autopilot here is just a flag for now (the planner lands in Task 7) and
-`fx.set` is a noop store — real DSP wiring comes later, but the command
-surface is stable so control/dashboard/MCP can be built against it today.
+`fx.set` is still a noop store — real DSP wiring comes later, but the
+command surface is stable so control/dashboard/MCP can be built against it
+today.
 """
 
 from __future__ import annotations
@@ -15,10 +15,10 @@ from typing import Any, Callable, Optional
 from madcool_dj_engine import __version__
 from madcool_dj_engine.analyze import analyze_file
 from madcool_dj_engine.audio_out import claim_default_sink
+from madcool_dj_engine.autopilot import Autopilot
 from madcool_dj_engine.cache import load_analysis
+from madcool_dj_engine.library import scan_dir
 from madcool_dj_engine.mixer import DualDeckMixer
-
-LIBRARY_EXTENSIONS = {".wav", ".flac", ".mp3"}
 
 # engine/src/madcool_dj_engine/commands.py -> repo root
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -42,11 +42,12 @@ class EngineCommandHandler:
     to share across concurrent client connections.
     """
 
-    def __init__(self, mixer: Optional[DualDeckMixer] = None):
+    def __init__(self, mixer: Optional[DualDeckMixer] = None, broadcast: Optional[Callable[[str, dict], None]] = None):
         self.mixer = mixer if mixer is not None else DualDeckMixer()
-        self.autopilot_enabled = False
+        self.broadcast = broadcast or (lambda event, data: None)
         self.fx_state: dict[str, Any] = {}
         self.library_index: list[dict[str, Any]] = []
+        self.autopilot = Autopilot(self, self._emit)
 
         self._commands: dict[str, Callable[[dict], Any]] = {
             "status": self._status,
@@ -71,6 +72,12 @@ class EngineCommandHandler:
             raise CommandError(f"unknown_command: {cmd}")
         return handler(params or {})
 
+    def _emit(self, event: str, data: dict) -> None:
+        """Autopilot's broadcast callback — indirects through `self.broadcast`
+        so it stays current even if the protocol server is wired up after
+        this handler (and its `Autopilot`) is constructed."""
+        self.broadcast(event, data)
+
     # -- status ---------------------------------------------------------
 
     def _deck_summary(self, name: str) -> dict:
@@ -89,7 +96,7 @@ class EngineCommandHandler:
             "version": __version__,
             "crossfade": self.mixer.crossfade,
             "decks": {"a": self._deck_summary("a"), "b": self._deck_summary("b")},
-            "autopilot": self.autopilot_enabled,
+            "autopilot": self.autopilot.enabled,
         }
 
     # -- device -----------------------------------------------------------
@@ -150,14 +157,8 @@ class EngineCommandHandler:
         root = params.get("root") or os.environ.get("MUSIC_ROOT") or DEFAULT_LIBRARY_ROOT
         root_path = Path(root)
 
-        tracks: list[dict[str, Any]] = []
-        if root_path.exists():
-            for candidate in sorted(root_path.rglob("*")):
-                if candidate.is_file() and candidate.suffix.lower() in LIBRARY_EXTENSIONS:
-                    tracks.append({"path": str(candidate.resolve())})
-
-        self.library_index = tracks
-        return {"root": str(root_path), "count": len(tracks)}
+        self.library_index = [{"path": p} for p in scan_dir(root_path)]
+        return {"root": str(root_path), "count": len(self.library_index)}
 
     def _library_list(self, params: dict) -> dict:
         tracks = []
@@ -177,11 +178,11 @@ class EngineCommandHandler:
     # -- autopilot / fx -----------------------------------------------------
 
     def _autopilot_enable(self, params: dict) -> dict:
-        self.autopilot_enabled = True
+        self.autopilot.enable()
         return {"autopilot": True}
 
     def _autopilot_disable(self, params: dict) -> dict:
-        self.autopilot_enabled = False
+        self.autopilot.disable()
         return {"autopilot": False}
 
     def _fx_set(self, params: dict) -> dict:
