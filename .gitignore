@@ -12,3 +12,4 @@ __pycache__/
 .mypy_cache/
 *.egg-info/
 .DS_Store
+.worktrees/
