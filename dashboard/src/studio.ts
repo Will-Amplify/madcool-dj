@@ -23,7 +23,6 @@ const seqPatterns: Record<string, number[]> = {
 const padGrid = byId<HTMLDivElement>("pad-grid");
 const seqGrid = byId<HTMLDivElement>("seq-grid");
 const studioKitLabel = byId<HTMLSpanElement>("studio-kit-label");
-const seqStepLabel = byId<HTMLSpanElement>("seq-step");
 const synthGate = byId<HTMLButtonElement>("synth-gate");
 
 for (const pad of PADS) {

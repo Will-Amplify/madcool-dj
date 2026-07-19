@@ -30,7 +30,7 @@ Optional systemd user units: `scripts/systemd/madcool-dj-{engine,control}.servic
 ./scripts/verify.sh          # full professional gate (pytest + builds + smokes + e2e)
 ```
 
-Exits `0` when `health` and `status` both report `ok: true` (the protocol path — no PortAudio/hardware required). Override `ENGINE_SOCK`, `DJ_HOST`, or `DJ_PORT` env vars if `:8799` or the default socket path is taken.
+Exits `0` when `health` and `status` both report `ok: true` (the protocol path — no PortAudio/hardware required). Defaults pick a per-run socket (`/tmp/madcool-e2e-$$.sock`) and an ephemeral port so parallel runs do not collide. Override `ENGINE_SOCK`, `DJ_HOST`, or `DJ_PORT` if you need fixed endpoints.
 
 ## Tailscale bind
 

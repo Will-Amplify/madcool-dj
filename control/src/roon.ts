@@ -182,6 +182,7 @@ export class RoonClient {
   private connectStarted = false;
   private roonApi: any = null;
   private moo: any = null;
+  private lastUnpairedLogAt = 0;
 
   constructor(deps: RoonDeps = defaultDeps, opts: RoonClientOptions = {}) {
     this.deps = deps;
@@ -419,7 +420,13 @@ export class RoonClient {
         this.settlePairingWaiters(null);
       },
       core_unpaired: (core: RoonCore) => {
-        console.warn(`[roon] unpaired from core "${core.display_name}"`);
+        // Roon can fire unpaired in a tight loop when multiple clients share
+        // the same extension id — rate-limit so we do not blow the stack via console.
+        const now = Date.now();
+        if (now - this.lastUnpairedLogAt > 5_000) {
+          this.lastUnpairedLogAt = now;
+          console.warn(`[roon] unpaired from core "${core.display_name}"`);
+        }
         this.state = { phase: "disconnected", core: null, lastError: "roon_unpaired" };
         try {
           this.moo?.transport?.close?.();

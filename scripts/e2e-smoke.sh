@@ -4,12 +4,25 @@
 # the full protocol path through the HTTP command bus, and tears everything
 # down on exit. No PortAudio/hardware dependency: exercises the protocol
 # surface (load/play/autopilot/status), audio-out is best-effort only.
+#
+# Defaults use a per-run socket + ephemeral port so parallel/back-to-back
+# verify runs do not collide on /tmp/madcool-e2e.sock or :8799.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-ENGINE_SOCK="${ENGINE_SOCK:-/tmp/madcool-e2e.sock}"
+pick_free_port() {
+  python3 - <<'PY'
+import socket
+s = socket.socket()
+s.bind(("127.0.0.1", 0))
+print(s.getsockname()[1])
+s.close()
+PY
+}
+
+ENGINE_SOCK="${ENGINE_SOCK:-/tmp/madcool-e2e-$$.sock}"
 DJ_HOST="${DJ_HOST:-127.0.0.1}"
-DJ_PORT="${DJ_PORT:-8799}"
+DJ_PORT="${DJ_PORT:-$(pick_free_port)}"
 BASE_URL="http://${DJ_HOST}:${DJ_PORT}"
 
 CLIP_A="$ROOT/fixtures/clips/clip_a.wav"
@@ -33,6 +46,25 @@ CONTROL_LOG="$(mktemp /tmp/madcool-e2e-control.XXXXXX.log)"
 ENGINE_PID=""
 CONTROL_PID=""
 CLEANED_UP=0
+
+# Compact noisy JSON for the terminal; full payloads still drive assertions.
+show() {
+  local raw="$1"
+  if command -v jq >/dev/null 2>&1; then
+    echo "$raw" | jq -c 'walk(
+      if type == "object" then
+        with_entries(
+          if (.key == "energy" or .key == "beats" or .key == "waveform") and ((.value | type) == "array") then
+            .value = "[\(.value | length)]"
+          else . end
+        )
+      else . end
+    )' 2>/dev/null || { echo "$raw" | head -c 400; echo; }
+  else
+    echo "$raw" | head -c 400
+    echo
+  fi
+}
 
 cleanup() {
   local status=$?
@@ -70,6 +102,7 @@ trap cleanup EXIT INT TERM
 echo "==> starting engine (sock=$ENGINE_SOCK)"
 (
   cd "$ROOT/engine"
+  # shellcheck disable=SC1091
   source .venv/bin/activate
   if python -c "import sounddevice" 2>/dev/null; then
     exec python -m madcool_dj_engine --sock "$ENGINE_SOCK" --play
@@ -81,6 +114,10 @@ ENGINE_PID=$!
 
 for _ in $(seq 1 50); do
   [[ -S "$ENGINE_SOCK" ]] && break
+  if ! kill -0 "$ENGINE_PID" 2>/dev/null; then
+    echo "FAIL: engine exited before socket appeared" >&2
+    exit 1
+  fi
   sleep 0.2
 done
 if [[ ! -S "$ENGINE_SOCK" ]]; then
@@ -94,12 +131,20 @@ echo "==> starting control ($BASE_URL)"
   cd "$ROOT/control"
   export ENGINE_SOCK DJ_HOST DJ_PORT
   unset DJ_TOKEN
+  # Protocol e2e must not register the live Roon extension — parallel or
+  # orphan control processes thrash unpaired callbacks against Simon.
+  export ROON_DISABLED=1
+  export DJ_E2E=1
   exec ./node_modules/.bin/tsx src/index.ts
 ) >"$CONTROL_LOG" 2>&1 &
 CONTROL_PID=$!
 
 for _ in $(seq 1 50); do
   curl -fsS --max-time 2 "$BASE_URL/health" >/dev/null 2>&1 && break
+  if ! kill -0 "$CONTROL_PID" 2>/dev/null; then
+    echo "FAIL: control exited before health" >&2
+    exit 1
+  fi
   sleep 0.2
 done
 if ! curl -fsS --max-time 2 "$BASE_URL/health" >/dev/null 2>&1; then
@@ -119,47 +164,47 @@ cmd() {
 echo
 echo "==> health"
 HEALTH="$(curl -fsS --max-time 5 "$BASE_URL/health")"
-echo "$HEALTH"
+show "$HEALTH"
 
 echo
 echo "==> library.scan (root=$ROOT/fixtures/clips)"
 SCAN="$(cmd "library.scan" "{\"root\":\"$ROOT/fixtures/clips\"}")"
-echo "$SCAN"
+show "$SCAN"
 
 echo
 echo "==> analyze.file (clip_a)"
 ANALYZE_A="$(cmd "analyze.file" "{\"path\":\"$CLIP_A\"}")"
-echo "$ANALYZE_A"
+show "$ANALYZE_A"
 
 echo
 echo "==> analyze.file (clip_b)"
 ANALYZE_B="$(cmd "analyze.file" "{\"path\":\"$CLIP_B\"}")"
-echo "$ANALYZE_B"
+show "$ANALYZE_B"
 
 echo
 echo "==> deck.load a"
 LOAD_A="$(cmd "deck.load" "{\"deck\":\"a\",\"path\":\"$CLIP_A\"}")"
-echo "$LOAD_A"
+show "$LOAD_A"
 
 echo
 echo "==> deck.load b"
 LOAD_B="$(cmd "deck.load" "{\"deck\":\"b\",\"path\":\"$CLIP_B\"}")"
-echo "$LOAD_B"
+show "$LOAD_B"
 
 echo
 echo "==> deck.play a"
 PLAY_A="$(cmd "deck.play" "{\"deck\":\"a\"}")"
-echo "$PLAY_A"
+show "$PLAY_A"
 
 echo
 echo "==> autopilot.enable"
 AUTOPILOT="$(cmd "autopilot.enable")"
-echo "$AUTOPILOT"
+show "$AUTOPILOT"
 
 echo
 echo "==> status"
 STATUS="$(curl -fsS --max-time 5 "$BASE_URL/v1/status")"
-echo "$STATUS"
+show "$STATUS"
 
 HEALTH_OK="$(echo "$HEALTH" | jq -r '.ok // false')"
 STATUS_OK="$(echo "$STATUS" | jq -r '.ok // false')"
@@ -171,25 +216,25 @@ AUTOPILOT_ON="$(echo "$STATUS" | jq -r '.result.autopilot // false')"
 echo
 echo "==> mixer.crossfade to B (2s ramp)"
 XFADE="$(cmd "mixer.crossfade" "{\"to\":\"b\",\"seconds\":2}")"
-echo "$XFADE"
+show "$XFADE"
 XFADE_OK="$(echo "$XFADE" | jq -r '.ok // false')"
 
 echo
 echo "==> library.browse (fixtures)"
 BROWSE="$(cmd "library.browse" "{\"path\":\"$ROOT/fixtures/clips\"}")"
-echo "$BROWSE"
+show "$BROWSE"
 BROWSE_FILES="$(echo "$BROWSE" | jq -r '.result.files | length')"
 
 echo
 echo "==> studio.status"
 STUDIO="$(cmd "studio.status")"
-echo "$STUDIO" | jq -c '{fx:.result.fx.enabled, pads:(.result.sampler.pads|length)}' 2>/dev/null || echo "$STUDIO"
+echo "$STUDIO" | jq -c '{fx:.result.fx.enabled, pads:(.result.sampler.pads|length)}' 2>/dev/null || show "$STUDIO"
 STUDIO_OK="$(echo "$STUDIO" | jq -r '.ok // false')"
 
 echo
 echo "==> music.status (optional key)"
 MUSIC="$(cmd "music.status" || true)"
-echo "$MUSIC" | head -c 400; echo
+show "$MUSIC"
 MUSIC_OK="$(echo "$MUSIC" | jq -r '.ok // false' 2>/dev/null || echo false)"
 
 echo
