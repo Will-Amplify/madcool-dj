@@ -10,10 +10,18 @@ from typing import Any, Callable, Optional
 
 from madcool_dj_engine import __version__
 from madcool_dj_engine.analyze import analyze_file
-from madcool_dj_engine.audio_out import claim_default_sink
+from madcool_dj_engine.audio_out import (
+    audio_info,
+    claim_default_sink,
+    has_callback,
+    restart_stream,
+    set_mode,
+    stop_stream,
+    stream_active,
+)
 from madcool_dj_engine.autopilot import Autopilot
 from madcool_dj_engine.cache import load_analysis
-from madcool_dj_engine.library import scan_dir
+from madcool_dj_engine.library import browse_dir, scan_dir
 from madcool_dj_engine.mixer import DualDeckMixer
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -35,7 +43,10 @@ class EngineCommandHandler:
         self._commands: dict[str, Callable[[dict], Any]] = {
             "status": self._status,
             "device.claim": self._device_claim,
+            "device.release": self._device_release,
+            "device.setMode": self._device_set_mode,
             "deck.load": self._deck_load,
+            "deck.waveform": self._deck_waveform,
             "deck.play": self._deck_play,
             "deck.pause": self._deck_pause,
             "deck.seek": self._deck_seek,
@@ -50,6 +61,7 @@ class EngineCommandHandler:
             "analyze.file": self._analyze_file,
             "library.scan": self._library_scan,
             "library.list": self._library_list,
+            "library.browse": self._library_browse,
             "autopilot.enable": self._autopilot_enable,
             "autopilot.disable": self._autopilot_disable,
             "fx.set": self._fx_set,
@@ -102,11 +114,48 @@ class EngineCommandHandler:
             "decks": {"a": self._deck_summary("a"), "b": self._deck_summary("b")},
             "autopilot": self.autopilot.enabled,
             "fx": dict(self.fx_state),
+            "audio": audio_info(),
         }
 
     def _device_claim(self, params: dict) -> dict:
         claim_default_sink()
-        return {"claimed": True}
+        try:
+            restart_stream()
+            active = True
+        except Exception:
+            # Stream may not have been started yet (--play never passed); claim still helps.
+            active = stream_active()
+        info = audio_info()
+        info["claimed"] = True
+        info["stream_active"] = active
+        return info
+
+    def _device_release(self, params: dict) -> dict:
+        """Stop the mix stream.
+
+        Needed in exclusive mode so RoonBridge can take ALSA on Tom - AES.
+        In shared mode this is optional (PipeWire can mix); still allowed.
+        """
+        closed = stop_stream()
+        info = audio_info()
+        info["released"] = closed
+        return info
+
+    def _device_set_mode(self, params: dict) -> dict:
+        mode = params.get("mode")
+        if not isinstance(mode, str):
+            raise CommandError("missing_mode")
+        try:
+            set_mode(mode)
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
+        # Reopen on the device appropriate for the new mode when a stream exists.
+        if stream_active() or has_callback():
+            try:
+                restart_stream()
+            except Exception:
+                pass
+        return audio_info()
 
     @staticmethod
     def _require_deck(params: dict) -> str:
@@ -123,11 +172,38 @@ class EngineCommandHandler:
         start_sec = float(params.get("startSec") or 0.0)
         source = str(params.get("source") or "local")
         title = str(params.get("title") or "")
+        bins = int(params.get("waveformBins") or 256)
         try:
             self.mixer.load(deck, Path(path), start_sec=start_sec, source=source, title=title)
         except Exception as exc:
             raise CommandError(f"deck_load_failed: {exc}") from exc
-        return self._deck_summary(deck)
+        summary = self._deck_summary(deck)
+        # Instant overview from the loaded PCM (no re-decode).
+        try:
+            summary["waveform"] = self.mixer.waveform(deck, bins=bins)
+        except Exception:
+            summary["waveform"] = []
+        cached = load_analysis(Path(path)) if Path(path).exists() else None
+        if cached:
+            summary["analysis"] = {
+                "bpm": cached.get("bpm"),
+                "duration_sec": cached.get("duration_sec"),
+                "bands": cached.get("bands"),
+                "energy": cached.get("energy"),
+                "beats": cached.get("beats"),
+            }
+        else:
+            summary["analysis"] = None
+        return summary
+
+    def _deck_waveform(self, params: dict) -> dict:
+        deck = self._require_deck(params)
+        bins = int(params.get("bins") or 256)
+        try:
+            energy = self.mixer.waveform(deck, bins=bins)
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
+        return {"deck": deck, "energy": energy, "bins": len(energy)}
 
     def _deck_play(self, params: dict) -> dict:
         deck = self._require_deck(params)
@@ -239,6 +315,7 @@ class EngineCommandHandler:
             "duration_sec": result.get("duration_sec"),
             "bands": result.get("bands"),
             "energy": result.get("energy"),
+            "beats": result.get("beats"),
         }
 
     def _library_scan(self, params: dict) -> dict:
@@ -259,9 +336,21 @@ class EngineCommandHandler:
                     "duration_sec": cached.get("duration_sec"),
                     "bands": cached.get("bands"),
                     "energy": cached.get("energy"),
+                    "beats": cached.get("beats"),
                 }
             tracks.append(item)
         return {"tracks": tracks}
+
+    def _library_browse(self, params: dict) -> dict:
+        raw = params.get("path") or os.environ.get("MUSIC_ROOT") or str(Path.home() / "Music")
+        try:
+            return browse_dir(Path(str(raw)))
+        except FileNotFoundError as exc:
+            raise CommandError(str(exc)) from exc
+        except PermissionError as exc:
+            raise CommandError(str(exc)) from exc
+        except OSError as exc:
+            raise CommandError(f"browse_failed: {exc}") from exc
 
     def _autopilot_enable(self, params: dict) -> dict:
         self.autopilot.enable()

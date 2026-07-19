@@ -30,19 +30,46 @@ export class RoonUnavailableError extends Error {
 
 export type ControlAction = "play" | "pause" | "playpause" | "stop" | "next" | "previous";
 
+export interface ZoneVolume {
+  outputId: string;
+  type: string;
+  min: number | null;
+  max: number | null;
+  value: number | null;
+  step: number | null;
+  isMuted: boolean;
+}
+
 export interface ZoneSummary {
   zoneId: string;
   displayName: string;
   state: string;
-  nowPlaying: { line1: string; line2: string; line3: string } | null;
+  nowPlaying: { line1: string; line2: string; line3: string; length: number | null } | null;
   seekPosition: number | null;
   isPlayAllowed: boolean;
   isPauseAllowed: boolean;
   isPreviousAllowed: boolean;
   isNextAllowed: boolean;
+  isSeekAllowed: boolean;
+  queueItemsRemaining: number;
+  settings: { loop: string; shuffle: boolean; autoRadio: boolean } | null;
+  volume: ZoneVolume | null;
 }
 
 /** Shape of the raw zone object Roon's transport service hands back. */
+interface RoonOutput {
+  output_id: string;
+  display_name?: string;
+  volume?: {
+    type?: string;
+    min?: number;
+    max?: number;
+    value?: number;
+    step?: number;
+    is_muted?: boolean;
+  };
+}
+
 interface RoonZone {
   zone_id: string;
   display_name: string;
@@ -51,8 +78,13 @@ interface RoonZone {
   is_pause_allowed?: boolean;
   is_previous_allowed?: boolean;
   is_next_allowed?: boolean;
+  is_seek_allowed?: boolean;
+  queue_items_remaining?: number;
+  settings?: { loop?: string; shuffle?: boolean; auto_radio?: boolean };
+  outputs?: RoonOutput[];
   now_playing?: {
     seek_position?: number;
+    length?: number;
     three_line?: { line1?: string; line2?: string; line3?: string };
   };
 }
@@ -60,6 +92,19 @@ interface RoonZone {
 interface RoonTransportService {
   get_zones(cb: (err: string | false, body: { zones: RoonZone[] } | undefined) => void): void;
   control(zoneOrOutput: RoonZone, control: ControlAction, cb: (err: string | false) => void): void;
+  seek(zoneOrOutput: RoonZone, how: "relative" | "absolute", seconds: number, cb: (err: string | false) => void): void;
+  change_volume(
+    output: RoonOutput,
+    how: "absolute" | "relative" | "relative_step",
+    value: number,
+    cb: (err: string | false) => void,
+  ): void;
+  mute(output: RoonOutput, how: "mute" | "unmute", cb: (err: string | false) => void): void;
+  change_settings(
+    zoneOrOutput: RoonZone,
+    settings: { shuffle?: boolean; auto_radio?: boolean; loop?: string },
+    cb: (err: string | false) => void,
+  ): void;
 }
 
 interface RoonCore {
@@ -220,13 +265,7 @@ export class RoonClient {
   async control(zoneIdOrName: string, action: ControlAction): Promise<void> {
     await this.connectRoon();
     const transport = this.getTransport();
-    const zones = await this.getZones(transport);
-    const zone =
-      zones.find((z) => z.zone_id === zoneIdOrName) ??
-      zones.find((z) => z.display_name.toLowerCase() === zoneIdOrName.toLowerCase());
-    if (!zone) {
-      throw new RoonUnavailableError(`roon_zone_not_found: ${zoneIdOrName}`);
-    }
+    const zone = await this.resolveZone(transport, zoneIdOrName);
 
     return new Promise((resolve, reject) => {
       transport.control(zone, action, (err) => {
@@ -234,6 +273,84 @@ export class RoonClient {
         else resolve();
       });
     });
+  }
+
+  async seek(zoneIdOrName: string, how: "relative" | "absolute", seconds: number): Promise<void> {
+    await this.connectRoon();
+    const transport = this.getTransport();
+    const zone = await this.resolveZone(transport, zoneIdOrName);
+    return new Promise((resolve, reject) => {
+      transport.seek(zone, how, seconds, (err) => {
+        if (err) reject(new RoonUnavailableError(`roon_seek_failed: ${err}`));
+        else resolve();
+      });
+    });
+  }
+
+  async changeVolume(
+    zoneIdOrName: string,
+    how: "absolute" | "relative" | "relative_step",
+    value: number,
+  ): Promise<void> {
+    await this.connectRoon();
+    const transport = this.getTransport();
+    const zone = await this.resolveZone(transport, zoneIdOrName);
+    const output = zone.outputs?.[0];
+    if (!output?.volume) {
+      throw new RoonUnavailableError(`roon_volume_unavailable: ${zone.display_name}`);
+    }
+    return new Promise((resolve, reject) => {
+      transport.change_volume(output, how, value, (err) => {
+        if (err) reject(new RoonUnavailableError(`roon_volume_failed: ${err}`));
+        else resolve();
+      });
+    });
+  }
+
+  async mute(zoneIdOrName: string, how: "mute" | "unmute"): Promise<void> {
+    await this.connectRoon();
+    const transport = this.getTransport();
+    const zone = await this.resolveZone(transport, zoneIdOrName);
+    const output = zone.outputs?.[0];
+    if (!output) {
+      throw new RoonUnavailableError(`roon_mute_unavailable: ${zone.display_name}`);
+    }
+    return new Promise((resolve, reject) => {
+      transport.mute(output, how, (err) => {
+        if (err) reject(new RoonUnavailableError(`roon_mute_failed: ${err}`));
+        else resolve();
+      });
+    });
+  }
+
+  async changeSettings(
+    zoneIdOrName: string,
+    settings: { shuffle?: boolean; autoRadio?: boolean; loop?: string },
+  ): Promise<void> {
+    await this.connectRoon();
+    const transport = this.getTransport();
+    const zone = await this.resolveZone(transport, zoneIdOrName);
+    const payload: { shuffle?: boolean; auto_radio?: boolean; loop?: string } = {};
+    if (settings.shuffle !== undefined) payload.shuffle = settings.shuffle;
+    if (settings.autoRadio !== undefined) payload.auto_radio = settings.autoRadio;
+    if (settings.loop !== undefined) payload.loop = settings.loop;
+    return new Promise((resolve, reject) => {
+      transport.change_settings(zone, payload, (err) => {
+        if (err) reject(new RoonUnavailableError(`roon_settings_failed: ${err}`));
+        else resolve();
+      });
+    });
+  }
+
+  private async resolveZone(transport: RoonTransportService, zoneIdOrName: string): Promise<RoonZone> {
+    const zones = await this.getZones(transport);
+    const zone =
+      zones.find((z) => z.zone_id === zoneIdOrName) ??
+      zones.find((z) => z.display_name.toLowerCase() === zoneIdOrName.toLowerCase());
+    if (!zone) {
+      throw new RoonUnavailableError(`roon_zone_not_found: ${zoneIdOrName}`);
+    }
+    return zone;
   }
 
   private getZones(transport: RoonTransportService): Promise<RoonZone[]> {
@@ -358,6 +475,8 @@ export class RoonClient {
 }
 
 function toZoneSummary(zone: RoonZone): ZoneSummary {
+  const out = zone.outputs?.[0];
+  const vol = out?.volume;
   return {
     zoneId: zone.zone_id,
     displayName: zone.display_name,
@@ -367,6 +486,7 @@ function toZoneSummary(zone: RoonZone): ZoneSummary {
           line1: zone.now_playing.three_line.line1 ?? "",
           line2: zone.now_playing.three_line.line2 ?? "",
           line3: zone.now_playing.three_line.line3 ?? "",
+          length: zone.now_playing.length ?? null,
         }
       : null,
     seekPosition: zone.now_playing?.seek_position ?? null,
@@ -374,6 +494,26 @@ function toZoneSummary(zone: RoonZone): ZoneSummary {
     isPauseAllowed: Boolean(zone.is_pause_allowed),
     isPreviousAllowed: Boolean(zone.is_previous_allowed),
     isNextAllowed: Boolean(zone.is_next_allowed),
+    isSeekAllowed: Boolean(zone.is_seek_allowed),
+    queueItemsRemaining: zone.queue_items_remaining ?? 0,
+    settings: zone.settings
+      ? {
+          loop: zone.settings.loop ?? "disabled",
+          shuffle: Boolean(zone.settings.shuffle),
+          autoRadio: Boolean(zone.settings.auto_radio),
+        }
+      : null,
+    volume: vol
+      ? {
+          outputId: out!.output_id,
+          type: vol.type ?? "number",
+          min: vol.min ?? null,
+          max: vol.max ?? null,
+          value: vol.value ?? null,
+          step: vol.step ?? null,
+          isMuted: Boolean(vol.is_muted),
+        }
+      : null,
   };
 }
 
@@ -394,6 +534,29 @@ export function listZones(): Promise<ZoneSummary[]> {
 
 export function control(zoneIdOrName: string, action: ControlAction): Promise<void> {
   return getSharedClient().control(zoneIdOrName, action);
+}
+
+export function seek(zoneIdOrName: string, how: "relative" | "absolute", seconds: number): Promise<void> {
+  return getSharedClient().seek(zoneIdOrName, how, seconds);
+}
+
+export function changeVolume(
+  zoneIdOrName: string,
+  how: "absolute" | "relative" | "relative_step",
+  value: number,
+): Promise<void> {
+  return getSharedClient().changeVolume(zoneIdOrName, how, value);
+}
+
+export function mute(zoneIdOrName: string, how: "mute" | "unmute"): Promise<void> {
+  return getSharedClient().mute(zoneIdOrName, how);
+}
+
+export function changeSettings(
+  zoneIdOrName: string,
+  settings: { shuffle?: boolean; autoRadio?: boolean; loop?: string },
+): Promise<void> {
+  return getSharedClient().changeSettings(zoneIdOrName, settings);
 }
 
 export function roonStatus(): RoonState {

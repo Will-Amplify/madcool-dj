@@ -34,12 +34,14 @@
       <section class="browser-row" aria-label="Library and Roon">
         <article class="panel browser">
           <header class="panel-head">
-            <h2>Library</h2>
+            <h2>Files</h2>
             <div class="panel-actions">
-              <button id="btn-scan" class="btn btn--small" type="button">Scan</button>
+              <button id="btn-browse-up" class="btn btn--small" type="button" title="Parent folder">↑</button>
+              <button id="btn-scan" class="btn btn--small" type="button" title="Rescan recursive index">Index</button>
               <input id="lib-search" type="search" placeholder="Filter…" />
             </div>
           </header>
+          <div class="browse-path" id="browse-path" title="Current folder">~/Music</div>
           <ul id="lib-list" class="track-list"></ul>
         </article>
         <article class="panel roon-panel">
@@ -48,21 +50,15 @@
             <button id="btn-roon-refresh" class="btn btn--small" type="button">Refresh</button>
           </header>
           <ul id="roon-list" class="zone-list"></ul>
-          <p id="roon-hint" class="hint">Zones load when the extension is paired.</p>
+          <p id="roon-hint" class="hint">Transport, seek, volume, mute, shuffle / loop / radio — from Roon transport API.</p>
         </article>
       </section>
 
       <section class="deck-rig" aria-label="Decks and mixer">
         <!-- Deck A -->
-        <article class="deck" id="deck-a" data-deck="a">
+        <article class="deck drop-zone" id="deck-a" data-deck="a">
           <header class="deck-head">
             <span class="deck-tag">A</span>
-            <select id="deck-a-source" class="source-select" aria-label="Deck A source">
-              <option value="local">Local</option>
-              <option value="roon">Roon (zone)</option>
-              <option value="spotify" disabled>Spotify †</option>
-              <option value="tidal" disabled>Tidal †</option>
-            </select>
             <span class="deck-state" id="deck-a-state">idle</span>
           </header>
           <p class="deck-title" id="deck-a-title">no track</p>
@@ -118,7 +114,10 @@
           </div>
           <button id="btn-autopilot" class="btn btn--toggle" type="button">Autopilot</button>
           <button id="btn-claim" class="btn" type="button">Claim DAC</button>
+          <button id="btn-release" class="btn" type="button">Release DAC</button>
+          <button id="btn-audio-mode" class="btn" type="button" title="Toggle shared/exclusive">Audio: shared</button>
           <button id="btn-load-fixtures" class="btn" type="button">Load fixtures</button>
+          <button id="btn-find" class="btn" type="button">Find “SamSupa”</button>
           <div class="mixer-status">
             <div class="meta-item"><span class="meta-label">autopilot</span><span class="meta-value" id="autopilot-state">off</span></div>
             <div class="meta-item"><span class="meta-label">engine</span><span class="meta-value" id="engine-version">—</span></div>
@@ -127,15 +126,9 @@
         </div>
 
         <!-- Deck B -->
-        <article class="deck" id="deck-b" data-deck="b">
+        <article class="deck drop-zone" id="deck-b" data-deck="b">
           <header class="deck-head">
             <span class="deck-tag">B</span>
-            <select id="deck-b-source" class="source-select" aria-label="Deck B source">
-              <option value="local">Local</option>
-              <option value="roon">Roon (zone)</option>
-              <option value="spotify" disabled>Spotify †</option>
-              <option value="tidal" disabled>Tidal †</option>
-            </select>
             <span class="deck-state" id="deck-b-state">idle</span>
           </header>
           <p class="deck-title" id="deck-b-title">no track</p>

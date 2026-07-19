@@ -33,24 +33,30 @@ When `DJ_HOST` is not loopback (e.g. serving on tom-1 at `100.85.196.90`), reque
 
 ## Roon
 
-Roon Core runs on Simon (`ROON_HOST=100.109.124.125`). `control/src/roon.ts` registers a real Roon extension — "MadCool DJ" (`com.madcool.dj`) — against it using [`node-roon-api`](https://github.com/RoonLabs/node-roon-api) + [`node-roon-api-transport`](https://github.com/RoonLabs/node-roon-api-transport) + [`node-roon-api-status`](https://github.com/RoonLabs/node-roon-api-status), installed straight from GitHub (unpublished on npm) via:
+Roon Core runs on Simon (`ROON_HOST=100.109.124.125`). `control/src/roon.ts` registers extension **MadCool DJ** (`com.madcool.dj`) via [`node-roon-api`](https://github.com/RoonLabs/node-roon-api) + transport + status.
+
+**First connection:** on Simon → Settings → Extensions → Enable **MadCool DJ**. Token persists at `~/.config/madcool-dj/roon_token` (`0600`).
+
+### Shared audio (Tom + SXW)
+
+MadCool DJ defaults to `DJ_AUDIO_MODE=shared` (PulseAudio **Default Sink** / PipeWire). RoonBridge must also share — exclusive `hw:SXW…` loses the zone when PipeWire holds the DAC.
 
 ```bash
-cd control && npm install github:RoonLabs/node-roon-api github:RoonLabs/node-roon-api-transport github:RoonLabs/node-roon-api-status
+./scripts/roon-audio-mode.sh shared     # RAAT → plug:pipewire + software volume
+# then restart RoonBridge with XDG_RUNTIME_DIR set for the logged-in user
+./scripts/roon-audio-mode.sh exclusive  # restore hw:CARD=SXWMDL7601INTCL,DEV=0
 ```
 
-**First connection requires a one-time approval on Simon**: open Roon -> Settings -> Extensions, find "MadCool DJ" in the list, and click **Enable**. Until then, `roon.zones` / `roon.control` (and the `dj_roon_zones` / `dj_roon_control` MCP tools) fail fast with a `roon_pending_authorization` error instead of hanging or crashing the control server — that's the expected state on a fresh Core, not a bug.
+Dashboard Roon panel: play/pause/stop/prev/next, seek, volume/mute, shuffle/loop/radio.
 
-Once approved, Roon hands back a pairing token, which is persisted to `~/.config/madcool-dj/roon_token` (mode `0600`) so future runs reconnect silently without needing to re-approve. Delete that file to force re-pairing.
+Commands: `roon.zones`, `roon.control`, `roon.seek`, `roon.volume`, `roon.mute`, `roon.settings`.
 
-Env vars (see `.env.example`): `ROON_HOST` (default `100.109.124.125`), `ROON_PORT` (default `9330`, Roon 2.0's extension websocket port — confirmed open on Simon), `ROON_PAIR_TIMEOUT_MS` (default `10000`, how long `roon.zones`/`roon.control` wait for pairing before giving up), `ROON_TOKEN_PATH` (override the token file location).
-
-Smoke scripts:
+Env: `ROON_HOST`, `ROON_PORT` (9330), `ROON_PAIR_TIMEOUT_MS`, `ROON_TOKEN_PATH`, `DJ_AUDIO_MODE` (`shared`|`exclusive`).
 
 ```bash
 cd control
-npx tsx scripts/roon-smoke.ts       # real connection to Simon; prints zones or a clear pending-authorization message
-npx tsx scripts/roon-mock-smoke.ts  # no network — exercises pending/connected/error paths against a fake RoonApi
+npx tsx scripts/roon-smoke.ts
+npx tsx scripts/roon-mock-smoke.ts
 ```
 
 ## Fixtures
@@ -59,14 +65,15 @@ Run `./scripts/make-fixtures.sh` to slice ~90s WAV clips from source mixes under
 
 ## Dashboard
 
-`dashboard/` is a Serato/Traktor-inspired dual-deck surface:
+`dashboard/` is a dual-deck local mix surface + Roon co-pilot:
 
-- Per deck: **play/pause**, **CUE / SET CUE**, **jog wheel** + ± buttons, **scrub/waveform**, **pitch** (±8%), **HI/MID/LOW EQ**, **gain**, **source selector** (Local / Roon / Spotify† / Tidal†)
-- Center: crossfader, autopilot, claim DAC, load fixtures
-- Top: local library browser + **Roon zones on Simon** (play/pause/next)
+- Per deck: play/pause, CUE / SET CUE, jog + scrub, pitch (±8%), HI/MID/LOW EQ, gain, RMS waveform on load
+- Center: crossfader, autopilot, claim/release DAC, shared/exclusive audio mode
+- Top **Files**: directory browse (`library.browse`), drag-drop onto decks, Index for recursive scan
+- Top **Roon**: full zone transport (see above)
 - Live WS activity log + upcoming autopilot plan
 
-Dark charcoal + teal. Mix bus is always local PipeWire; Roon is a co-pilot for zone transport (no Spotify/Tidal PCM yet — stubs).
+Mix bus is always local PipeWire. Roon is zone transport on the same shared sink — not PCM into the decks. Spotify/Tidal remain stubs.
 
 ```bash
 cd dashboard && npm i && npm run build
@@ -74,7 +81,7 @@ cd dashboard && npm i && npm run build
 # open http://127.0.0.1:8787/
 ```
 
-Right-click a library track to toggle load target A↔B.
+Right-click a file to toggle load target A↔B.
 
 ## MCP
 

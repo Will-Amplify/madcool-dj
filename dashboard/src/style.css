@@ -125,6 +125,36 @@ html, body {
 }
 .deck-state.is-playing { color: var(--teal); }
 
+.browse-path {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--muted);
+  padding: 0 0.15rem 0.45rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.track-list li.is-dir { color: var(--teal); }
+.track-list li.is-dir .meta { color: var(--muted); }
+
+.zone-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.65rem 0.55rem;
+  border-bottom: 1px solid var(--line);
+}
+.zone-card:last-child { border-bottom: none; }
+.zone-now { font-size: 0.85rem; }
+.zone-now .meta { color: var(--muted); font-size: 0.7rem; margin-top: 0.15rem; }
+.zone-actions { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.zone-seek, .zone-vol {
+  display: flex; align-items: center; gap: 0.4rem; font-size: 0.7rem; color: var(--muted);
+}
+.zone-seek input, .zone-vol input { flex: 1; }
+.zone-toggles { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.btn.is-on { border-color: var(--teal); color: var(--teal); }
+
 .source-select {
   background: var(--bg0); border: 1px solid var(--line); color: var(--text);
   border-radius: 4px; padding: 0.2rem 0.35rem; font-size: 0.75rem;
@@ -160,6 +190,14 @@ html, body {
   user-select: none; cursor: grab; touch-action: none;
 }
 .jog-wheel:active { cursor: grabbing; }
+.jog-wheel.is-dragging { border-color: var(--teal); }
+
+.deck.drop-zone.is-dragover {
+  outline: 2px dashed var(--teal);
+  outline-offset: 4px;
+  background: rgba(47, 216, 196, 0.06);
+}
+.waveform.is-dragover { border-color: var(--teal); }
 
 .transport-row { display: flex; gap: 0.4rem; margin-bottom: 0.5rem; }
 .btn--play {

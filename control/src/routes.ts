@@ -5,8 +5,11 @@
  * can probe it without a token.
  */
 
-import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { createWriteStream, existsSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, extname, join } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 
 import { serveStatic } from "@hono/node-server/serve-static";
@@ -20,9 +23,12 @@ const cmdSchema = z.object({
   params: z.record(z.unknown()).optional(),
 });
 
+const AUDIO_EXTS = new Set([".wav", ".flac", ".mp3", ".aiff", ".aif", ".ogg", ".m4a", ".aac"]);
+
 // control/src/routes.ts (or control/dist/routes.js, same depth) -> repo root.
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DASHBOARD_DIST = join(__dirname, "..", "..", "dashboard", "dist");
+const UPLOAD_DIR = join(homedir(), ".cache", "madcool-dj", "uploads");
 
 export function createApp(): Hono {
   const app = new Hono();
@@ -68,6 +74,44 @@ export function createApp(): Hono {
     try {
       const result = await execute(parsed.data.cmd, parsed.data.params ?? {});
       return c.json({ ok: true, result });
+    } catch (err) {
+      return c.json({ ok: false, error: errorMessage(err) }, 502);
+    }
+  });
+
+  /** Drop-target upload: save audio under ~/.cache/madcool-dj/uploads and optionally load a deck. */
+  app.post("/v1/upload", async (c) => {
+    try {
+      const form = await c.req.formData();
+      const file = form.get("file");
+      if (!(file instanceof File)) {
+        return c.json({ ok: false, error: "missing_file" }, 400);
+      }
+      const ext = extname(file.name || "").toLowerCase();
+      if (!AUDIO_EXTS.has(ext)) {
+        return c.json({ ok: false, error: `unsupported_audio_ext: ${ext || "(none)"}` }, 400);
+      }
+      mkdirSync(UPLOAD_DIR, { recursive: true });
+      const safe = (file.name || `drop${ext}`).replace(/[^\w.\-]+/g, "_").slice(0, 120);
+      const dest = join(UPLOAD_DIR, `${Date.now()}_${safe}`);
+      const body = file.stream();
+      await pipeline(
+        Readable.fromWeb(body as import("node:stream/web").ReadableStream),
+        createWriteStream(dest),
+      );
+
+      const deckRaw = form.get("deck");
+      const deck = deckRaw === "a" || deckRaw === "b" ? deckRaw : null;
+      let load: unknown = null;
+      if (deck) {
+        load = await execute("deck.load", {
+          deck,
+          path: dest,
+          source: "local",
+          title: file.name.replace(/\.[^.]+$/, "") || safe,
+        });
+      }
+      return c.json({ ok: true, result: { path: dest, name: file.name, load } });
     } catch (err) {
       return c.json({ ok: false, error: errorMessage(err) }, 502);
     }

@@ -217,8 +217,29 @@ export function createMcpServer(): McpServer {
 
   server.registerTool(
     "dj_device_claim",
-    { description: "Best-effort claim of the default PipeWire sink for the engine's output." },
+    { description: "Claim the default PipeWire/ALSA sink for the local mix bus (restarts stream)." },
     async () => run("device.claim"),
+  );
+
+  server.registerTool(
+    "dj_device_release",
+    {
+      description:
+        "Stop the mix stream. Required in exclusive mode so RoonBridge can take ALSA on Tom - AES; optional in shared mode.",
+    },
+    async () => run("device.release"),
+  );
+
+  server.registerTool(
+    "dj_device_set_mode",
+    {
+      description:
+        "Set audio arbitration: 'shared' (PipeWire Default Sink, coexist) or 'exclusive' (release DAC for RoonBridge).",
+      inputSchema: {
+        mode: z.enum(["shared", "exclusive"]).describe("Audio device mode"),
+      },
+    },
+    async (args) => run("device.setMode", args),
   );
 
   server.registerTool(
@@ -240,6 +261,67 @@ export function createMcpServer(): McpServer {
       },
     },
     async (args) => run("roon.control", args),
+  );
+
+  server.registerTool(
+    "dj_roon_seek",
+    {
+      description: "Seek within the now-playing track on a Roon zone.",
+      inputSchema: {
+        zone: z.string().min(1),
+        how: z.enum(["absolute", "relative"]).describe("Seek mode"),
+        seconds: z.number().describe("Target or delta seconds"),
+      },
+    },
+    async (args) => run("roon.seek", args),
+  );
+
+  server.registerTool(
+    "dj_roon_volume",
+    {
+      description: "Change volume on a Roon zone's primary output.",
+      inputSchema: {
+        zone: z.string().min(1),
+        how: z.enum(["absolute", "relative", "relative_step"]),
+        value: z.number(),
+      },
+    },
+    async (args) => run("roon.volume", args),
+  );
+
+  server.registerTool(
+    "dj_roon_mute",
+    {
+      description: "Mute or unmute a Roon zone's primary output.",
+      inputSchema: {
+        zone: z.string().min(1),
+        how: z.enum(["mute", "unmute"]),
+      },
+    },
+    async (args) => run("roon.mute", args),
+  );
+
+  server.registerTool(
+    "dj_roon_settings",
+    {
+      description: "Change shuffle / loop / auto-radio on a Roon zone.",
+      inputSchema: {
+        zone: z.string().min(1),
+        shuffle: z.boolean().optional(),
+        autoRadio: z.boolean().optional(),
+        loop: z.string().optional().describe("loop | loop_one | disabled | next"),
+      },
+    },
+    async (args) => run("roon.settings", args),
+  );
+
+  server.registerTool(
+    "dj_library_browse",
+    {
+      description: "Browse one directory level (folders + audio files) for the files panel.",
+      inputSchema: { path: z.string().optional().describe("Absolute directory path") },
+    },
+    async (args) => run("library.browse", args),
   );
 
   server.registerTool(

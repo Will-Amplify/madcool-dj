@@ -111,6 +111,14 @@ class DualDeckMixer:
         state = self._require(deck)
         self.seek(deck, state.position / float(self.sr) + delta_sec)
 
+    def waveform(self, deck: str, bins: int = 256) -> list[float]:
+        """RMS overview of the loaded buffer (for deck canvas waveforms)."""
+        from madcool_dj_engine.audio_out import energy_bins_from_audio
+
+        state = self._require(deck)
+        n = max(4, min(1024, int(bins)))
+        return energy_bins_from_audio(state.audio, bins=n)
+
     def set_cue(self, deck: str, position_sec: float | None = None) -> None:
         state = self._require(deck)
         if position_sec is None:

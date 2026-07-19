@@ -21,24 +21,73 @@ interface StatusResult {
   crossfade: number;
   decks: { a: DeckSummary; b: DeckSummary };
   autopilot: boolean;
+  audio?: {
+    mode?: string;
+    stream_active?: boolean;
+    device_name?: string | null;
+    hostapi?: string | null;
+  };
+}
+
+interface TrackAnalysis {
+  bpm?: number | null;
+  duration_sec?: number | null;
+  bands?: Record<string, number> | null;
+  energy?: number[] | null;
+  beats?: number[] | null;
 }
 
 interface LibraryTrack {
   path: string;
   title?: string;
-  analysis?: {
-    bpm?: number | null;
-    duration_sec?: number | null;
-    bands?: Record<string, number> | null;
-    energy?: number[] | null;
-  };
+  analysis?: TrackAnalysis;
+}
+
+interface LoadResult extends DeckSummary {
+  waveform?: number[];
+  analysis?: TrackAnalysis | null;
+}
+
+interface BrowseDir {
+  name: string;
+  path: string;
+}
+
+interface BrowseFile {
+  name: string;
+  path: string;
+  title: string;
+}
+
+interface BrowseResult {
+  path: string;
+  parent: string | null;
+  dirs: BrowseDir[];
+  files: BrowseFile[];
 }
 
 interface RoonZone {
   zoneId: string;
   displayName: string;
   state: string;
-  nowPlaying: { line1: string; line2: string; line3: string } | null;
+  nowPlaying: { line1: string; line2: string; line3: string; length: number | null } | null;
+  seekPosition: number | null;
+  isPlayAllowed: boolean;
+  isPauseAllowed: boolean;
+  isPreviousAllowed: boolean;
+  isNextAllowed: boolean;
+  isSeekAllowed: boolean;
+  queueItemsRemaining: number;
+  settings: { loop: string; shuffle: boolean; autoRadio: boolean } | null;
+  volume: {
+    outputId: string;
+    type: string;
+    min: number | null;
+    max: number | null;
+    value: number | null;
+    step: number | null;
+    isMuted: boolean;
+  } | null;
 }
 
 interface CmdResponse<T> {
@@ -50,6 +99,8 @@ interface CmdResponse<T> {
 const BAND_KEYS = ["sub", "bass", "low_mid", "high_mid", "hats"] as const;
 const TOKEN_KEY = "madcool-dj.token";
 const LOAD_DECK_KEY = "madcool-dj.loadDeck";
+const BROWSE_PATH_KEY = "madcool-dj.browsePath";
+const MUSIC_ROOT = "/home/madcoolseed/Music";
 
 function byId<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id);
@@ -63,6 +114,7 @@ const roonBadge = byId<HTMLDivElement>("roon-badge");
 const transportStatus = byId<HTMLSpanElement>("transport-status");
 const libList = byId<HTMLUListElement>("lib-list");
 const libSearch = byId<HTMLInputElement>("lib-search");
+const browsePathEl = byId<HTMLDivElement>("browse-path");
 const roonList = byId<HTMLUListElement>("roon-list");
 const roonHint = byId<HTMLParagraphElement>("roon-hint");
 const planBody = byId<HTMLDivElement>("plan-body");
@@ -73,15 +125,32 @@ const autopilotState = byId<HTMLSpanElement>("autopilot-state");
 const engineVersion = byId<HTMLSpanElement>("engine-version");
 const btnAutopilot = byId<HTMLButtonElement>("btn-autopilot");
 const btnClaim = byId<HTMLButtonElement>("btn-claim");
+const btnRelease = byId<HTMLButtonElement>("btn-release");
+const btnAudioMode = byId<HTMLButtonElement>("btn-audio-mode");
 const btnLoadFixtures = byId<HTMLButtonElement>("btn-load-fixtures");
+const btnFind = byId<HTMLButtonElement>("btn-find");
 const btnScan = byId<HTMLButtonElement>("btn-scan");
+const btnBrowseUp = byId<HTMLButtonElement>("btn-browse-up");
 const btnRoonRefresh = byId<HTMLButtonElement>("btn-roon-refresh");
 
 let library: LibraryTrack[] = [];
-let analysisByPath = new Map<string, LibraryTrack["analysis"]>();
+let browseDirs: BrowseDir[] = [];
+let browseFiles: BrowseFile[] = [];
+let browsePath = localStorage.getItem(BROWSE_PATH_KEY) || MUSIC_ROOT;
+let browseParent: string | null = null;
+let analysisByPath = new Map<string, TrackAnalysis | undefined>();
+let waveformByPath = new Map<string, number[]>();
 let loadTarget: DeckName = (localStorage.getItem(LOAD_DECK_KEY) as DeckName) || "a";
 let scrubbing: Record<DeckName, boolean> = { a: false, b: false };
 let lastStatus: StatusResult | null = null;
+let audioMode = "shared";
+let jogAngle: Record<DeckName, number> = { a: 0, b: 0 };
+const roonScrubbing = new Set<string>();
+const roonVolChanging = new Set<string>();
+
+function musicRoot(): string {
+  return localStorage.getItem("madcool-dj.musicRoot") || MUSIC_ROOT;
+}
 
 function token(): string {
   return tokenInput.value.trim();
@@ -138,7 +207,13 @@ function flash(msg: string): void {
   transportStatus.textContent = msg;
 }
 
-function drawWave(deck: DeckName, energy: number[] | null | undefined, pos: number, dur: number): void {
+function drawWave(
+  deck: DeckName,
+  energy: number[] | null | undefined,
+  beats: number[] | null | undefined,
+  pos: number,
+  dur: number,
+): void {
   const canvas = byId<HTMLCanvasElement>(`deck-${deck}-canvas`);
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -148,20 +223,97 @@ function drawWave(deck: DeckName, energy: number[] | null | undefined, pos: numb
   ctx.fillStyle = "#050807";
   ctx.fillRect(0, 0, w, h);
   const color = deck === "a" ? "#2fd8c4" : "#5ab0e8";
-  const samples = energy && energy.length > 4 ? energy : Array.from({ length: 64 }, (_, i) => 0.2 + 0.15 * Math.sin(i / 5));
-  const n = samples.length;
-  const barW = w / n;
-  for (let i = 0; i < n; i++) {
-    const v = Math.max(0.02, Math.min(1, samples[i] ?? 0));
-    const bh = v * (h - 4);
-    ctx.fillStyle = color;
-    ctx.globalAlpha = 0.55 + 0.45 * v;
-    ctx.fillRect(i * barW, h - bh, Math.max(1, barW - 1), bh);
+  const samples = energy && energy.length > 4 ? energy : null;
+  if (!samples) {
+    ctx.strokeStyle = "#1a2a26";
+    ctx.beginPath();
+    ctx.moveTo(0, h / 2);
+    ctx.lineTo(w, h / 2);
+    ctx.stroke();
+  } else {
+    const n = samples.length;
+    const barW = w / n;
+    for (let i = 0; i < n; i++) {
+      const v = Math.max(0.02, Math.min(1, samples[i] ?? 0));
+      const bh = v * (h - 4);
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.55 + 0.45 * v;
+      ctx.fillRect(i * barW, h - bh, Math.max(1, barW - 1), bh);
+    }
+    ctx.globalAlpha = 1;
   }
-  ctx.globalAlpha = 1;
+  if (beats && beats.length && dur > 0) {
+    ctx.strokeStyle = "rgba(255,255,255,0.18)";
+    ctx.lineWidth = 1;
+    for (const b of beats) {
+      if (b < 0 || b > dur) continue;
+      const x = (b / dur) * w;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h);
+      ctx.stroke();
+    }
+  }
   const playhead = byId<HTMLDivElement>(`deck-${deck}-playhead`);
   const pct = dur > 0 ? Math.min(1, pos / dur) : 0;
   playhead.style.left = `${pct * 100}%`;
+}
+
+async function loadOntoDeck(deck: DeckName, path: string, title?: string): Promise<void> {
+  const result = await cmd<LoadResult>("deck.load", {
+    deck,
+    path,
+    source: "local",
+    title: title || path.split("/").pop() || path,
+  });
+  if (result.waveform?.length) {
+    waveformByPath.set(path, result.waveform);
+  }
+  if (result.analysis) {
+    analysisByPath.set(path, {
+      ...result.analysis,
+      energy: result.waveform?.length ? result.waveform : result.analysis.energy,
+    });
+  } else if (result.waveform?.length) {
+    analysisByPath.set(path, { energy: result.waveform });
+  }
+  if (!result.analysis?.bpm) {
+    void cmd<TrackAnalysis>("analyze.file", { path })
+      .then((a) => {
+        const prev = analysisByPath.get(path) || {};
+        analysisByPath.set(path, {
+          ...prev,
+          ...a,
+          energy: waveformByPath.get(path) || a.energy || prev.energy,
+        });
+      })
+      .catch(() => undefined);
+  }
+}
+
+async function uploadOntoDeck(deck: DeckName, file: File): Promise<void> {
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("deck", deck);
+  const res = await fetch(`${apiBase()}/v1/upload`, {
+    method: "POST",
+    headers: { ...authHeaders() },
+    body: fd,
+  });
+  const body = (await res.json()) as CmdResponse<{ path: string; name: string; load: LoadResult | null }>;
+  if (!body.ok || !body.result) throw new Error(body.error || "upload_failed");
+  const { path, load } = body.result;
+  if (load?.waveform?.length) waveformByPath.set(path, load.waveform);
+  if (load?.analysis) {
+    analysisByPath.set(path, {
+      ...load.analysis,
+      energy: load.waveform?.length ? load.waveform : load.analysis.energy,
+    });
+  } else if (load?.waveform?.length) {
+    analysisByPath.set(path, { energy: load.waveform });
+  }
+  flash(`Dropped → ${deck.toUpperCase()}: ${file.name}`);
+  log(`upload ${deck}: ${file.name}`);
 }
 
 function renderBands(deck: DeckName, bands: Record<string, number> | null | undefined): void {
@@ -180,6 +332,7 @@ function renderBands(deck: DeckName, bands: Record<string, number> | null | unde
 function updateDeckUi(deck: DeckName, d: DeckSummary): void {
   const stateEl = byId<HTMLSpanElement>(`deck-${deck}-state`);
   const playBtn = byId<HTMLButtonElement>(`deck-${deck}-play`);
+
   stateEl.textContent = d.path ? (d.playing ? "playing" : "paused") : "idle";
   stateEl.classList.toggle("is-playing", Boolean(d.playing));
   playBtn.textContent = d.playing ? "❚❚" : "▶";
@@ -198,59 +351,255 @@ function updateDeckUi(deck: DeckName, d: DeckSummary): void {
     scrub.value = String(dur > 0 ? Math.round((d.position_sec / dur) * 1000) : 0);
   }
   const analysis = d.path ? analysisByPath.get(d.path) : undefined;
+  const energy = (d.path && waveformByPath.get(d.path)) || analysis?.energy || null;
   byId<HTMLSpanElement>(`deck-${deck}-bpm`).textContent = analysis?.bpm ? analysis.bpm.toFixed(1) : "—";
   renderBands(deck, analysis?.bands ?? null);
-  drawWave(deck, analysis?.energy ?? null, d.position_sec, d.duration_sec || 0);
-  const src = byId<HTMLSelectElement>(`deck-${deck}-source`);
-  if (d.source && src.value !== d.source && !["spotify", "tidal"].includes(d.source)) {
-    src.value = d.source === "roon" ? "roon" : "local";
-  }
+  drawWave(deck, energy, analysis?.beats ?? null, d.position_sec, d.duration_sec || 0);
+}
+
+function matchesFilter(text: string, q: string): boolean {
+  return text.toLowerCase().includes(q);
+}
+
+function wireFileRow(li: HTMLLIElement, path: string, label: string, title?: string): void {
+  const indexed = library.find((t) => t.path === path);
+  const bpm = indexed?.analysis?.bpm ? `${indexed.analysis.bpm.toFixed(0)} bpm` : "";
+  li.draggable = true;
+  li.innerHTML = `<span>${label}</span><span class="meta">${bpm}</span>`;
+  li.title = `Load to deck ${loadTarget.toUpperCase()}: ${path}`;
+  li.ondragstart = (ev) => {
+    ev.dataTransfer?.setData("application/x-madcool-path", path);
+    ev.dataTransfer?.setData("text/plain", path);
+    if (ev.dataTransfer) ev.dataTransfer.effectAllowed = "copy";
+  };
+  li.onclick = async () => {
+    try {
+      await loadOntoDeck(loadTarget, path, title || label);
+      log(`load ${loadTarget}: ${label}`);
+      flash(`Loaded → ${loadTarget.toUpperCase()}`);
+    } catch (e) {
+      flash(String(e));
+    }
+  };
+  li.oncontextmenu = (ev) => {
+    ev.preventDefault();
+    loadTarget = loadTarget === "a" ? "b" : "a";
+    localStorage.setItem(LOAD_DECK_KEY, loadTarget);
+    flash(`Load target: deck ${loadTarget.toUpperCase()}`);
+  };
 }
 
 function renderLibrary(): void {
   const q = libSearch.value.trim().toLowerCase();
   libList.innerHTML = "";
-  for (const t of library) {
-    const name = t.title || t.path.split("/").pop() || t.path;
-    if (q && !name.toLowerCase().includes(q) && !t.path.toLowerCase().includes(q)) continue;
+
+  for (const dir of browseDirs) {
+    if (q && !matchesFilter(dir.name, q) && !matchesFilter(dir.path, q)) continue;
     const li = document.createElement("li");
-    const bpm = t.analysis?.bpm ? `${t.analysis.bpm.toFixed(0)} bpm` : "";
-    li.innerHTML = `<span>${name}</span><span class="meta">${bpm}</span>`;
-    li.title = `Load to deck ${loadTarget.toUpperCase()}: ${t.path}`;
-    li.onclick = async () => {
-      try {
-        const source = byId<HTMLSelectElement>(`deck-${loadTarget}-source`).value;
-        if (source === "roon") {
-          flash("Switch source to Local to load files into the mix bus");
-          return;
-        }
-        if (source === "spotify" || source === "tidal") {
-          flash(`${source} stub — not configured`);
-          return;
-        }
-        await cmd("deck.load", { deck: loadTarget, path: t.path, source: "local", title: name });
-        log(`load ${loadTarget}: ${name}`);
-        flash(`Loaded → ${loadTarget.toUpperCase()}`);
-      } catch (e) {
-        flash(String(e));
-      }
-    };
-    li.oncontextmenu = (ev) => {
-      ev.preventDefault();
-      loadTarget = loadTarget === "a" ? "b" : "a";
-      localStorage.setItem(LOAD_DECK_KEY, loadTarget);
-      flash(`Load target: deck ${loadTarget.toUpperCase()}`);
-    };
+    li.className = "is-dir";
+    li.innerHTML = `<span>📁 ${dir.name}</span><span class="meta">dir</span>`;
+    li.title = dir.path;
+    li.onclick = () => void browseTo(dir.path);
+    libList.appendChild(li);
+  }
+
+  for (const file of browseFiles) {
+    const name = file.title || file.name;
+    if (q && !matchesFilter(name, q) && !matchesFilter(file.path, q)) continue;
+    const li = document.createElement("li");
+    wireFileRow(li, file.path, name, file.title);
     libList.appendChild(li);
   }
 }
 
+async function browseTo(path: string): Promise<void> {
+  const result = await cmd<BrowseResult>("library.browse", { path });
+  browsePath = result.path;
+  browseParent = result.parent;
+  browseDirs = result.dirs || [];
+  browseFiles = result.files || [];
+  localStorage.setItem(BROWSE_PATH_KEY, browsePath);
+  browsePathEl.textContent = browsePath;
+  btnBrowseUp.disabled = !browseParent;
+  renderLibrary();
+}
+
 async function refreshLibrary(): Promise<void> {
-  await cmd("library.scan", { root: localStorage.getItem("madcool-dj.musicRoot") || "/home/madcoolseed/Music" });
+  await cmd("library.scan", { root: musicRoot() });
   const listed = await cmd<{ tracks: LibraryTrack[] }>("library.list");
   library = listed.tracks || [];
   analysisByPath = new Map(library.filter((t) => t.path).map((t) => [t.path, t.analysis]));
-  renderLibrary();
+  await browseTo(browsePath);
+}
+
+function loopLabel(loop: string): string {
+  if (loop === "loop") return "Loop";
+  if (loop === "loop_one") return "One";
+  return "Loop off";
+}
+
+function nextLoopValue(current: string): string {
+  if (current === "disabled" || !current) return "loop";
+  if (current === "loop") return "loop_one";
+  return "disabled";
+}
+
+async function roonCmd(action: string, params: Record<string, unknown>): Promise<void> {
+  try {
+    await cmd(action, params);
+    log(`${action} ${JSON.stringify(params)}`.slice(0, 120));
+    await refreshRoon();
+  } catch (e) {
+    flash(String(e));
+    setBadge(roonBadge, false, true);
+  }
+}
+
+function renderZoneCard(z: RoonZone): HTMLLIElement {
+  const li = document.createElement("li");
+  li.className = "zone-card";
+
+  const head = document.createElement("div");
+  const np = z.nowPlaying;
+  const nowLines = np
+    ? `<div class="zone-now"><strong>${np.line1}</strong><div class="meta">${np.line2}${np.line3 ? ` · ${np.line3}` : ""}</div></div>`
+    : `<div class="zone-now meta">Nothing playing</div>`;
+  head.innerHTML = `<div><strong>${z.displayName}</strong> <span class="meta">${z.state}${z.queueItemsRemaining ? ` · ${z.queueItemsRemaining} queued` : ""}</span></div>${nowLines}`;
+  li.appendChild(head);
+
+  const transport = document.createElement("div");
+  transport.className = "zone-actions";
+
+  const mkBtn = (label: string, disabled: boolean, onclick: () => void): HTMLButtonElement => {
+    const b = document.createElement("button");
+    b.className = "btn btn--small";
+    b.type = "button";
+    b.textContent = label;
+    b.disabled = disabled;
+    b.onclick = (ev) => {
+      ev.stopPropagation();
+      void onclick();
+    };
+    return b;
+  };
+
+  const playing = z.state === "playing" || z.state === "loading";
+  transport.appendChild(
+    mkBtn("⏮", !z.isPreviousAllowed, () => roonCmd("roon.control", { zone: z.zoneId, action: "previous" })),
+  );
+  transport.appendChild(
+    mkBtn(playing ? "❚❚" : "▶", playing ? !z.isPauseAllowed : !z.isPlayAllowed, () =>
+      roonCmd("roon.control", { zone: z.zoneId, action: "playpause" }),
+    ),
+  );
+  transport.appendChild(mkBtn("■", false, () => roonCmd("roon.control", { zone: z.zoneId, action: "stop" })));
+  transport.appendChild(mkBtn("⏭", !z.isNextAllowed, () => roonCmd("roon.control", { zone: z.zoneId, action: "next" })));
+  li.appendChild(transport);
+
+  const trackLen = z.nowPlaying?.length ?? null;
+  if (trackLen != null && trackLen > 0 && z.isSeekAllowed) {
+    const seekRow = document.createElement("div");
+    seekRow.className = "zone-seek";
+    const seekLabel = document.createElement("span");
+    seekLabel.textContent = fmt(z.seekPosition ?? 0);
+    const seek = document.createElement("input");
+    seek.type = "range";
+    seek.min = "0";
+    seek.max = "1000";
+    const pos = z.seekPosition ?? 0;
+    seek.value = String(Math.round((pos / trackLen) * 1000));
+    const durLabel = document.createElement("span");
+    durLabel.textContent = fmt(trackLen);
+    seekRow.append(seekLabel, seek, durLabel);
+    li.appendChild(seekRow);
+
+    const seekTo = async () => {
+      const seconds = (Number(seek.value) / 1000) * trackLen;
+      try {
+        await cmd("roon.seek", { zone: z.zoneId, how: "absolute", seconds });
+      } catch (e) {
+        flash(String(e));
+      }
+    };
+    seek.onpointerdown = (ev) => {
+      roonScrubbing.add(z.zoneId);
+      seek.setPointerCapture(ev.pointerId);
+    };
+    seek.onpointerup = seek.onpointercancel = () => {
+      roonScrubbing.delete(z.zoneId);
+      void seekTo().then(() => refreshRoon());
+    };
+    let seekTimer: number | null = null;
+    seek.oninput = () => {
+      seekLabel.textContent = fmt((Number(seek.value) / 1000) * trackLen);
+      if (seekTimer != null) return;
+      seekTimer = window.setTimeout(() => {
+        seekTimer = null;
+        void seekTo();
+      }, 40);
+    };
+  }
+
+  if (z.volume && z.volume.min != null && z.volume.max != null && z.volume.value != null) {
+    const volRow = document.createElement("div");
+    volRow.className = "zone-vol";
+    const volMin = z.volume.min;
+    const volMax = z.volume.max;
+    const volStep = z.volume.step ?? 1;
+    const vol = document.createElement("input");
+    vol.type = "range";
+    vol.min = String(volMin);
+    vol.max = String(volMax);
+    vol.step = String(volStep);
+    vol.value = String(z.volume.value);
+    const muteBtn = mkBtn(z.volume.isMuted ? "Unmute" : "Mute", false, () =>
+      roonCmd("roon.mute", { zone: z.zoneId, how: z.volume!.isMuted ? "unmute" : "mute" }),
+    );
+    volRow.append(document.createTextNode("Vol"), vol, muteBtn);
+    li.appendChild(volRow);
+
+    let volTimer: number | null = null;
+    const setVol = async () => {
+      try {
+        await cmd("roon.volume", { zone: z.zoneId, how: "absolute", value: Number(vol.value) });
+      } catch (e) {
+        flash(String(e));
+      }
+    };
+    vol.onpointerdown = () => roonVolChanging.add(z.zoneId);
+    vol.onpointerup = vol.onpointercancel = () => {
+      roonVolChanging.delete(z.zoneId);
+      void setVol().then(() => refreshRoon());
+    };
+    vol.oninput = () => {
+      if (volTimer != null) return;
+      volTimer = window.setTimeout(() => {
+        volTimer = null;
+        void setVol();
+      }, 40);
+    };
+  }
+
+  const toggles = document.createElement("div");
+  toggles.className = "zone-toggles";
+  const settings = z.settings;
+  const shuffleBtn = mkBtn(`Shuffle ${settings?.shuffle ? "on" : "off"}`, false, () =>
+    roonCmd("roon.settings", { zone: z.zoneId, shuffle: !settings?.shuffle }),
+  );
+  shuffleBtn.classList.toggle("is-on", Boolean(settings?.shuffle));
+  const loopVal = settings?.loop || "disabled";
+  const loopBtn = mkBtn(loopLabel(loopVal), false, () =>
+    roonCmd("roon.settings", { zone: z.zoneId, loop: nextLoopValue(loopVal) }),
+  );
+  loopBtn.classList.toggle("is-on", loopVal === "loop" || loopVal === "loop_one");
+  const radioBtn = mkBtn(`Radio ${settings?.autoRadio ? "on" : "off"}`, false, () =>
+    roonCmd("roon.settings", { zone: z.zoneId, autoRadio: !settings?.autoRadio }),
+  );
+  radioBtn.classList.toggle("is-on", Boolean(settings?.autoRadio));
+  toggles.append(shuffleBtn, loopBtn, radioBtn);
+  li.appendChild(toggles);
+
+  return li;
 }
 
 async function refreshRoon(): Promise<void> {
@@ -258,34 +607,10 @@ async function refreshRoon(): Promise<void> {
     const result = await cmd<{ zones: RoonZone[] }>("roon.zones");
     const zones = result.zones || [];
     setBadge(roonBadge, true);
-    roonHint.textContent = `${zones.length} zone(s) · paired with Simon`;
+    roonHint.textContent = `${zones.length} zone(s) · transport, seek, volume, shuffle / loop / radio`;
     roonList.innerHTML = "";
     for (const z of zones) {
-      const li = document.createElement("li");
-      const now = z.nowPlaying ? `${z.nowPlaying.line1}` : "—";
-      li.innerHTML = `<div><strong>${z.displayName}</strong><div class="meta">${z.state} · ${now}</div></div>`;
-      const actions = document.createElement("div");
-      actions.className = "zone-actions";
-      for (const action of ["play", "pause", "next"] as const) {
-        const b = document.createElement("button");
-        b.className = "btn btn--small";
-        b.type = "button";
-        b.textContent = action;
-        b.onclick = async (ev) => {
-          ev.stopPropagation();
-          try {
-            await cmd("roon.control", { zone: z.zoneId, action });
-            log(`roon ${action} ${z.displayName}`);
-            await refreshRoon();
-          } catch (e) {
-            flash(String(e));
-            setBadge(roonBadge, false, true);
-          }
-        };
-        actions.appendChild(b);
-      }
-      li.appendChild(actions);
-      roonList.appendChild(li);
+      roonList.appendChild(renderZoneCard(z));
     }
   } catch (e) {
     setBadge(roonBadge, false, true);
@@ -296,8 +621,8 @@ async function refreshRoon(): Promise<void> {
 
 function wireDeck(deck: DeckName): void {
   byId<HTMLButtonElement>(`deck-${deck}-play`).onclick = async () => {
-    const playing = lastStatus?.decks[deck]?.playing;
     try {
+      const playing = lastStatus?.decks[deck]?.playing;
       await cmd(playing ? "deck.pause" : "deck.play", { deck });
     } catch (e) {
       flash(String(e));
@@ -320,14 +645,9 @@ function wireDeck(deck: DeckName): void {
   };
 
   const scrub = byId<HTMLInputElement>(`deck-${deck}-scrub`);
-  scrub.onpointerdown = () => {
-    scrubbing[deck] = true;
-  };
-  scrub.onpointerup = scrub.onpointerleave = () => {
-    scrubbing[deck] = false;
-  };
-  scrub.onchange = async () => {
+  const seekFromScrub = async () => {
     const dur = lastStatus?.decks[deck]?.duration_sec || 0;
+    if (dur <= 0) return;
     const positionSec = (Number(scrub.value) / 1000) * dur;
     try {
       await cmd("deck.seek", { deck, positionSec });
@@ -335,11 +655,28 @@ function wireDeck(deck: DeckName): void {
       flash(String(e));
     }
   };
+  scrub.onpointerdown = (ev) => {
+    scrubbing[deck] = true;
+    scrub.setPointerCapture(ev.pointerId);
+  };
+  scrub.onpointerup = scrub.onpointercancel = () => {
+    scrubbing[deck] = false;
+    void seekFromScrub();
+  };
+  let scrubTimer: number | null = null;
+  scrub.oninput = () => {
+    if (scrubTimer != null) return;
+    scrubTimer = window.setTimeout(() => {
+      scrubTimer = null;
+      void seekFromScrub();
+    }, 40);
+  };
 
   byId<HTMLDivElement>(`deck-${deck}-wave`).onclick = async (ev) => {
     const rect = (ev.currentTarget as HTMLElement).getBoundingClientRect();
     const pct = Math.min(1, Math.max(0, (ev.clientX - rect.left) / rect.width));
     const dur = lastStatus?.decks[deck]?.duration_sec || 0;
+    if (dur <= 0) return;
     try {
       await cmd("deck.seek", { deck, positionSec: pct * dur });
     } catch (e) {
@@ -374,42 +711,80 @@ function wireDeck(deck: DeckName): void {
     }
   };
 
-  byId<HTMLSelectElement>(`deck-${deck}-source`).onchange = (ev) => {
-    const v = (ev.target as HTMLSelectElement).value;
-    if (v === "roon") {
-      flash(`Deck ${deck.toUpperCase()} source=Roon — use zone controls (mix bus stays local)`);
-      loadTarget = deck;
-      localStorage.setItem(LOAD_DECK_KEY, deck);
-    } else if (v === "local") {
-      flash(`Deck ${deck.toUpperCase()} source=Local — click library tracks to load`);
-      loadTarget = deck;
-      localStorage.setItem(LOAD_DECK_KEY, deck);
-    }
-  };
-
-  // jog wheel drag
   const wheel = byId<HTMLDivElement>(`jog-${deck}`);
   let lastX = 0;
   let dragging = false;
-  wheel.onpointerdown = (ev) => {
-    dragging = true;
-    lastX = ev.clientX;
-    wheel.setPointerCapture(ev.pointerId);
-  };
-  wheel.onpointermove = async (ev) => {
-    if (!dragging) return;
-    const dx = ev.clientX - lastX;
-    lastX = ev.clientX;
-    if (Math.abs(dx) < 2) return;
+  let pendingDelta = 0;
+  let jogTimer: number | null = null;
+  const flushJog = async () => {
+    jogTimer = null;
+    const deltaSec = pendingDelta;
+    pendingDelta = 0;
+    if (Math.abs(deltaSec) < 0.001) return;
     try {
-      await cmd("deck.jog", { deck, deltaSec: dx * 0.01 });
+      await cmd("deck.jog", { deck, deltaSec });
     } catch {
       /* ignore spam */
     }
   };
+  wheel.onpointerdown = (ev) => {
+    dragging = true;
+    lastX = ev.clientX;
+    wheel.classList.add("is-dragging");
+    wheel.setPointerCapture(ev.pointerId);
+  };
+  wheel.onpointermove = (ev) => {
+    if (!dragging) return;
+    const dx = ev.clientX - lastX;
+    lastX = ev.clientX;
+    if (Math.abs(dx) < 1) return;
+    pendingDelta += dx * 0.008;
+    jogAngle[deck] = (jogAngle[deck] + dx * 0.9) % 360;
+    wheel.style.transform = `rotate(${jogAngle[deck]}deg)`;
+    if (jogTimer == null) jogTimer = window.setTimeout(() => void flushJog(), 35);
+  };
   wheel.onpointerup = wheel.onpointercancel = () => {
     dragging = false;
+    wheel.classList.remove("is-dragging");
+    void flushJog();
   };
+
+  const deckEl = byId<HTMLElement>(`deck-${deck}`);
+  const onDragOver = (ev: DragEvent) => {
+    ev.preventDefault();
+    deckEl.classList.add("is-dragover");
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = "copy";
+  };
+  const onDragLeave = () => deckEl.classList.remove("is-dragover");
+  const onDrop = async (ev: DragEvent) => {
+    ev.preventDefault();
+    deckEl.classList.remove("is-dragover");
+    const path =
+      ev.dataTransfer?.getData("application/x-madcool-path") ||
+      ev.dataTransfer?.getData("text/plain") ||
+      "";
+    const file = ev.dataTransfer?.files?.[0];
+    try {
+      if (path && path.startsWith("/") && !file) {
+        await loadOntoDeck(deck, path);
+        flash(`Dropped → ${deck.toUpperCase()}`);
+        return;
+      }
+      if (file) {
+        await uploadOntoDeck(deck, file);
+        return;
+      }
+      if (path.startsWith("/")) {
+        await loadOntoDeck(deck, path);
+        flash(`Dropped → ${deck.toUpperCase()}`);
+      }
+    } catch (e) {
+      flash(String(e));
+    }
+  };
+  deckEl.addEventListener("dragover", onDragOver);
+  deckEl.addEventListener("dragleave", onDragLeave);
+  deckEl.addEventListener("drop", onDrop);
 }
 
 document.querySelectorAll<HTMLButtonElement>("[data-jog]").forEach((btn) => {
@@ -464,7 +839,45 @@ btnAutopilot.onclick = async () => {
 btnClaim.onclick = async () => {
   try {
     await cmd("device.claim");
-    flash("Claimed default sink");
+    flash("Claimed DAC for local mix");
+  } catch (e) {
+    flash(String(e));
+  }
+};
+
+btnRelease.onclick = async () => {
+  try {
+    await cmd("device.release");
+    flash("DAC released");
+  } catch (e) {
+    flash(String(e));
+  }
+};
+
+btnAudioMode.onclick = async () => {
+  const next = audioMode === "shared" ? "exclusive" : "shared";
+  try {
+    const info = await cmd<{ mode: string; device_name?: string }>("device.setMode", { mode: next });
+    audioMode = info.mode || next;
+    btnAudioMode.textContent = `Audio: ${audioMode}`;
+    flash(`${audioMode} · ${info.device_name || "default"}`);
+  } catch (e) {
+    flash(String(e));
+  }
+};
+
+btnFind.onclick = async () => {
+  try {
+    libSearch.value = "SamSupa";
+    await refreshLibrary();
+    const hit = library.find((t) => /samsupa/i.test(t.path) || /samsupa/i.test(t.title || ""));
+    if (hit) {
+      await loadOntoDeck(loadTarget, hit.path, hit.title || hit.path);
+      flash(`Found → deck ${loadTarget.toUpperCase()}: ${hit.title || hit.path}`);
+    } else {
+      renderLibrary();
+      flash("No SamSupa match in scanned library (check ~/Music)");
+    }
   } catch (e) {
     flash(String(e));
   }
@@ -476,8 +889,8 @@ btnLoadFixtures.onclick = async () => {
     const clips = library.filter((t) => /clip_[ab]\.wav$/i.test(t.path));
     const a = clips.find((t) => /clip_a/i.test(t.path)) || clips[0];
     const b = clips.find((t) => /clip_b/i.test(t.path)) || clips[1];
-    if (a) await cmd("deck.load", { deck: "a", path: a.path, source: "local", title: a.title || "clip_a" });
-    if (b) await cmd("deck.load", { deck: "b", path: b.path, source: "local", title: b.title || "clip_b" });
+    if (a) await loadOntoDeck("a", a.path, a.title || "clip_a");
+    if (b) await loadOntoDeck("b", b.path, b.title || "clip_b");
     flash("Fixtures on A/B");
     log("loaded fixtures");
   } catch (e) {
@@ -486,6 +899,16 @@ btnLoadFixtures.onclick = async () => {
 };
 
 btnScan.onclick = () => void refreshLibrary().catch((e) => flash(String(e)));
+btnBrowseUp.onclick = () => {
+  if (browseParent) void browseTo(browseParent).catch((e) => flash(String(e)));
+};
+browsePathEl.title = browsePath;
+browsePathEl.onclick = () => {
+  void navigator.clipboard.writeText(browsePath).then(
+    () => flash("Path copied"),
+    () => flash(browsePath),
+  );
+};
 btnRoonRefresh.onclick = () => void refreshRoon();
 libSearch.oninput = () => renderLibrary();
 
@@ -504,6 +927,10 @@ async function poll(): Promise<void> {
     btnAutopilot.classList.toggle("is-on", st.autopilot);
     crossfaderValue.textContent = st.crossfade.toFixed(2);
     if (document.activeElement !== crossfader) crossfader.value = String(st.crossfade);
+    if (st.audio?.mode) {
+      audioMode = st.audio.mode;
+      btnAudioMode.textContent = `Audio: ${audioMode}`;
+    }
     updateDeckUi("a", st.decks.a);
     updateDeckUi("b", st.decks.b);
   } catch (e) {
@@ -538,7 +965,7 @@ function connectWs(): void {
 connectWs();
 void poll();
 window.setInterval(() => void poll(), 500);
-void refreshLibrary().catch(() => undefined);
+void browseTo(browsePath).catch(() => undefined);
 void refreshRoon();
 window.setInterval(() => void refreshRoon(), 8000);
 log("dashboard ready");

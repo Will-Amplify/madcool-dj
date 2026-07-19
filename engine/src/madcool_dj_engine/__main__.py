@@ -13,7 +13,7 @@ import signal
 import sys
 import threading
 
-from madcool_dj_engine.audio_out import claim_default_sink, start_stream
+from madcool_dj_engine.audio_out import claim_default_sink, start_stream, stop_stream
 from madcool_dj_engine.commands import EngineCommandHandler
 from madcool_dj_engine.protocol import EngineProtocolServer
 
@@ -42,10 +42,9 @@ def main(argv: list[str] | None = None) -> None:
     server.start()
     logger.info("listening on %s", args.sock)
 
-    stream = None
     if args.play:
         claim_default_sink()
-        stream = start_stream(handler.mixer.mix_block)
+        start_stream(handler.mixer.mix_block)
         logger.info("audio output stream started")
 
     stop_event = threading.Event()
@@ -61,9 +60,7 @@ def main(argv: list[str] | None = None) -> None:
         while not stop_event.is_set():
             stop_event.wait(0.5)
     finally:
-        if stream is not None:
-            stream.stop()
-            stream.close()
+        stop_stream()
         server.stop()
 
 
