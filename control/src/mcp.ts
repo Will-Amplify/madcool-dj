@@ -2,8 +2,8 @@
  * MCP tool surface over the shared command bus (`bus.ts`). Every tool here is
  * a thin wrapper around `execute(cmd, params)` — the same bus the HTTP routes
  * and WebSocket use — so MCP clients (Cursor, Claude Desktop, ...) get the
- * exact same behavior as the REST API. `dj_roon_*` hit the `roon.*` stub in
- * `bus.ts` until Task 11 wires up the real Roon client.
+ * exact same behavior as the REST API. `dj_roon_*` route to `roon.ts`, which
+ * talks to a real Roon Core (Simon) over the network.
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -140,17 +140,20 @@ export function createMcpServer(): McpServer {
 
   server.registerTool(
     "dj_roon_zones",
-    { description: "List Roon zones. Stubbed until Task 11 wires up the Roon client." },
+    {
+      description:
+        "List Roon zones on Simon's Roon Core. Fails with a pending-authorization error until the 'MadCool DJ' extension is approved in Roon (Settings -> Extensions).",
+    },
     async () => run("roon.zones"),
   );
 
   server.registerTool(
     "dj_roon_control",
     {
-      description: "Control a Roon zone (play/pause/etc). Stubbed until Task 11 wires up the Roon client.",
+      description: "Control a Roon zone (play/pause/etc) on Simon's Roon Core.",
       inputSchema: {
         zone: z.string().min(1).describe("Roon zone id or name"),
-        action: z.string().min(1).describe("Transport action, e.g. 'play', 'pause', 'next'"),
+        action: z.enum(["play", "pause", "playpause", "stop", "next", "previous"]).describe("Transport action"),
       },
     },
     async (args) => run("roon.control", args),

@@ -13,6 +13,9 @@
     "@hono/node-server": "^1.13.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "hono": "^4.6.0",
+    "node-roon-api": "github:RoonLabs/node-roon-api",
+    "node-roon-api-status": "github:RoonLabs/node-roon-api-status",
+    "node-roon-api-transport": "github:RoonLabs/node-roon-api-transport",
     "ws": "^8.18.0",
     "zod": "^3.23.0"
   },

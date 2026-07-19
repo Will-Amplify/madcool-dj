@@ -9,6 +9,7 @@ import { serve } from "@hono/node-server";
 
 import { engineClient } from "./engineClient.js";
 import { createApp } from "./routes.js";
+import { closeRoon } from "./roon.js";
 import { attachWebSocket } from "./ws.js";
 
 const host = process.env.DJ_HOST || "127.0.0.1";
@@ -36,6 +37,7 @@ attachWebSocket(server as unknown as Server, engineClient);
 function shutdown(): void {
   console.log("[control] shutting down");
   engineClient.close();
+  closeRoon();
   server.close(() => process.exit(0));
 }
 

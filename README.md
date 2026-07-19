@@ -22,7 +22,25 @@ When `DJ_HOST` is not loopback (e.g. serving on tom-1 at `100.85.196.90`), reque
 
 ## Roon
 
-Roon Core runs on Simon (`ROON_HOST=100.109.124.125`). First connection from this host requires **approve-once** in the Roon app on Simon.
+Roon Core runs on Simon (`ROON_HOST=100.109.124.125`). `control/src/roon.ts` registers a real Roon extension — "MadCool DJ" (`com.madcool.dj`) — against it using [`node-roon-api`](https://github.com/RoonLabs/node-roon-api) + [`node-roon-api-transport`](https://github.com/RoonLabs/node-roon-api-transport) + [`node-roon-api-status`](https://github.com/RoonLabs/node-roon-api-status), installed straight from GitHub (unpublished on npm) via:
+
+```bash
+cd control && npm install github:RoonLabs/node-roon-api github:RoonLabs/node-roon-api-transport github:RoonLabs/node-roon-api-status
+```
+
+**First connection requires a one-time approval on Simon**: open Roon -> Settings -> Extensions, find "MadCool DJ" in the list, and click **Enable**. Until then, `roon.zones` / `roon.control` (and the `dj_roon_zones` / `dj_roon_control` MCP tools) fail fast with a `roon_pending_authorization` error instead of hanging or crashing the control server — that's the expected state on a fresh Core, not a bug.
+
+Once approved, Roon hands back a pairing token, which is persisted to `~/.config/madcool-dj/roon_token` (mode `0600`) so future runs reconnect silently without needing to re-approve. Delete that file to force re-pairing.
+
+Env vars (see `.env.example`): `ROON_HOST` (default `100.109.124.125`), `ROON_PORT` (default `9330`, Roon 2.0's extension websocket port — confirmed open on Simon), `ROON_PAIR_TIMEOUT_MS` (default `10000`, how long `roon.zones`/`roon.control` wait for pairing before giving up), `ROON_TOKEN_PATH` (override the token file location).
+
+Smoke scripts:
+
+```bash
+cd control
+npx tsx scripts/roon-smoke.ts       # real connection to Simon; prints zones or a clear pending-authorization message
+npx tsx scripts/roon-mock-smoke.ts  # no network — exercises pending/connected/error paths against a fake RoonApi
+```
 
 ## Fixtures
 
