@@ -63,17 +63,25 @@ npx tsx scripts/roon-mock-smoke.ts
 
 Run `./scripts/make-fixtures.sh` to slice ~90s WAV clips from source mixes under `MUSIC_ROOT`. Generated `.wav` files stay local (gitignored); only `fixtures/clips/.gitkeep` is tracked.
 
+Dubstep kit: `./scripts/make-dubstep-kit.py` writes drums/bass/FX/loops into `fixtures/dubstep` and `~/Music/dj-library/dubstep` (procedural, royalty-clear for MadCool).
+
 ## Dashboard
 
-`dashboard/` is a dual-deck local mix surface + Roon co-pilot:
+`dashboard/` is a dual-deck local mix surface + Roon co-pilot + **Studio** bus:
 
 - Per deck: play/pause, CUE / SET CUE, jog + scrub, pitch (±8%), HI/MID/LOW EQ, gain, RMS waveform on load
 - Center: crossfader, autopilot, claim/release DAC, shared/exclusive audio mode
+- **Studio · Dubstep**: pad sampler, wobble bass synth, 16-step sequencer (140 BPM default), master FX (filter/LFO/delay/crush), transition macros (build/drop/wobble/sweep/crush/clean)
+- **Music Gen · MiniMax 3.0**: live text-to-music / cover generation with full creative controls (BPM, key, genre, moods, complexity, energy, vocals, instruments, atmosphere, theme). Drop a reference track to seed metadata + prompt. Async jobs save into `~/Music/dj-library/generated/`
 - Top **Files**: directory browse (`library.browse`), drag-drop onto decks, Index for recursive scan
 - Top **Roon**: full zone transport (see above)
 - Live WS activity log + upcoming autopilot plan
 
 Mix bus is always local PipeWire. Roon is zone transport on the same shared sink — not PCM into the decks. Spotify/Tidal remain stubs.
+
+### MiniMax
+
+Set `MINIMAX_API_KEY` in `.env`, or keep the key in `~/MiniMax API.txt` (auto-loaded). Endpoint: `https://api.minimax.io/v1/music_generation` (`music-3.0`). Commands: `music.status`, `music.previewPrompt`, `music.analyzeRef`, `music.lyrics`, `music.generate`, `music.job`.
 
 ```bash
 cd dashboard && npm i && npm run build

@@ -1,0 +1,18 @@
+{
+  "name": "madcool-dubstep",
+  "bpm": 140,
+  "pads": {
+    "kick": "drums/kick_punch.wav",
+    "kick2": "drums/kick_hard.wav",
+    "snare": "drums/snare_crack.wav",
+    "clap": "drums/clap_wide.wav",
+    "hat": "drums/hat_closed.wav",
+    "openhat": "drums/hat_open.wav",
+    "rim": "drums/snare_rim.wav",
+    "bass": "bass/growl_3.wav",
+    "riser": "fx/riser_2bar.wav",
+    "impact": "fx/impact_boom.wav",
+    "sweep": "fx/sweep_up.wav",
+    "noise": "fx/noise_down.wav"
+  }
+}

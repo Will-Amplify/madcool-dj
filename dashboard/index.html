@@ -176,6 +176,219 @@
         </article>
       </section>
 
+      <section class="gen-row" aria-label="MiniMax music generation">
+        <article class="panel gen-panel">
+          <header class="panel-head">
+            <h2>Music Gen · MiniMax 3.0</h2>
+            <div class="panel-actions">
+              <span class="meta-value" id="gen-status">—</span>
+              <button id="btn-gen-preview" class="btn btn--small" type="button">Compose prompt</button>
+              <button id="btn-gen-go" class="btn btn--play" type="button">Generate</button>
+            </div>
+          </header>
+
+          <div class="gen-layout">
+            <div class="gen-col">
+              <div
+                id="gen-ref-drop"
+                class="gen-ref-drop"
+                title="Drop a reference track to seed BPM, title, artist, genre"
+              >
+                <strong>Reference</strong>
+                <span id="gen-ref-hint">Drop WAV/MP3/FLAC here — or right-click a Files entry → Use as ref</span>
+                <div id="gen-ref-meta" class="gen-ref-meta hidden"></div>
+              </div>
+
+              <div class="gen-mode-row">
+                <label>Mode
+                  <select id="gen-mode">
+                    <option value="generate">Create (music-3.0)</option>
+                    <option value="cover">Cover (music-cover)</option>
+                  </select>
+                </label>
+                <label>Model
+                  <select id="gen-model">
+                    <option value="music-3.0">music-3.0</option>
+                    <option value="music-3.0-free">music-3.0-free</option>
+                    <option value="music-2.6">music-2.6</option>
+                    <option value="music-cover">music-cover</option>
+                    <option value="music-cover-free">music-cover-free</option>
+                  </select>
+                </label>
+                <label>Format
+                  <select id="gen-format">
+                    <option value="mp3">mp3 256k</option>
+                    <option value="wav">wav</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="eq-row gen-sliders">
+                <label>BPM <input id="gen-bpm" type="range" min="40" max="180" step="1" value="140" /><span id="gen-bpm-val" class="meta-value">140</span></label>
+                <label>Key
+                  <select id="gen-key">
+                    <option value="">Auto</option>
+                    <option>A minor</option><option>C minor</option><option>D minor</option><option>E minor</option>
+                    <option>F minor</option><option>G minor</option><option>A major</option><option>C major</option>
+                    <option>D major</option><option>E major</option><option>F major</option><option>G major</option>
+                    <option>Bb minor</option><option>F# minor</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="gen-mode-row">
+                <label>Genre
+                  <select id="gen-genre">
+                    <option>Dubstep</option><option>Riddim</option><option>Drum and Bass</option>
+                    <option>Techno</option><option>House</option><option>Future Bass</option>
+                    <option>Trap</option><option>Hip-Hop</option><option>R&amp;B</option>
+                    <option>Indie Folk</option><option>Synth-pop</option><option>Ambient</option>
+                    <option>Jazz</option><option>Cinematic</option><option>Custom…</option>
+                  </select>
+                </label>
+                <label>Subgenre <input id="gen-subgenre" type="text" placeholder="tearout / melodic / deep…" /></label>
+                <label>Era <input id="gen-era" type="text" placeholder="2012 UK / 90s / Y2K…" /></label>
+              </div>
+
+              <div class="gen-chips" id="gen-moods" data-group="moods" aria-label="Moods">
+                <span class="gen-chip-label">Mood</span>
+              </div>
+              <div class="gen-chips" id="gen-instruments" data-group="instruments" aria-label="Instruments">
+                <span class="gen-chip-label">Instruments</span>
+              </div>
+
+              <div class="gen-mode-row">
+                <label>Complexity
+                  <select id="gen-complexity">
+                    <option value="sparse">Sparse</option>
+                    <option value="balanced" selected>Balanced</option>
+                    <option value="dense">Dense</option>
+                    <option value="maximal">Maximal</option>
+                  </select>
+                </label>
+                <label>Energy
+                  <select id="gen-energy">
+                    <option value="low">Low</option>
+                    <option value="medium" selected>Medium</option>
+                    <option value="high">High</option>
+                    <option value="peak">Peak</option>
+                  </select>
+                </label>
+                <label>Vocals
+                  <select id="gen-vocals">
+                    <option value="none">Instrumental</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="duet">Duet</option>
+                    <option value="choir">Choir</option>
+                    <option value="rap">Rap</option>
+                    <option value="sing-rap">Sing-rap</option>
+                  </select>
+                </label>
+              </div>
+
+              <label class="gen-field">Vocal style <input id="gen-vocal-style" type="text" placeholder="breathy intimate / heavy autotune / gravelly baritone…" /></label>
+              <label class="gen-field">Atmosphere <input id="gen-atmosphere" type="text" placeholder="warehouse at 2am / rainy neon alley / sunrise drive…" /></label>
+              <label class="gen-field">Theme / narrative <input id="gen-theme" type="text" placeholder="what the track is about…" /></label>
+              <label class="gen-field">Use case <input id="gen-usecase" type="text" placeholder="DJ drop / set opener / podcast bed…" /></label>
+              <label class="gen-field">Avoid <input id="gen-avoid" type="text" placeholder="cheesy drops, stock risers, chipmunk vocals…" /></label>
+              <label class="gen-field">Extras <input id="gen-extras" type="text" placeholder="anything else for the creative brief…" /></label>
+            </div>
+
+            <div class="gen-col">
+              <label class="gen-field">Prompt <span class="meta-muted">(English creative brief — editable)</span>
+                <textarea id="gen-prompt" rows="8" placeholder="Compose or edit the MiniMax prompt…"></textarea>
+              </label>
+              <label class="gen-field">Lyrics <span class="meta-muted">([Verse]/[Chorus]… — empty = optimizer / instrumental)</span>
+                <textarea id="gen-lyrics" rows="8" placeholder="Leave empty for instrumental or auto lyrics…"></textarea>
+              </label>
+              <div class="gen-mode-row">
+                <button id="btn-gen-lyrics" class="btn btn--small" type="button">Write lyrics</button>
+                <button id="btn-gen-scaffold" class="btn btn--small" type="button">Scaffold</button>
+                <label class="gen-check"><input id="gen-autoload" type="checkbox" checked /> Auto-load deck A</label>
+              </div>
+              <div id="gen-job" class="gen-job">No job yet.</div>
+              <ul id="gen-job-list" class="gen-job-list"></ul>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="studio-row" aria-label="Dubstep studio">
+        <article class="panel studio-panel">
+          <header class="panel-head">
+            <h2>Studio · Dubstep</h2>
+            <div class="panel-actions">
+              <button id="btn-kit-load" class="btn btn--small" type="button">Load kit</button>
+              <span class="meta-value" id="studio-kit-label">—</span>
+            </div>
+          </header>
+
+          <div class="studio-grid">
+            <div class="studio-block">
+              <h3>Pads</h3>
+              <div id="pad-grid" class="pad-grid"></div>
+            </div>
+
+            <div class="studio-block">
+              <h3>Wobble synth</h3>
+              <div class="synth-row">
+                <button id="synth-gate" class="btn btn--toggle" type="button">Hold bass</button>
+                <select id="synth-wave" aria-label="Waveform">
+                  <option value="saw">saw</option>
+                  <option value="square">square</option>
+                  <option value="sine">sine</option>
+                </select>
+                <label>note <input id="synth-note" type="number" min="24" max="60" value="33" /></label>
+              </div>
+              <div class="eq-row">
+                <label>CUT <input id="synth-cut" type="range" min="80" max="4000" step="1" value="800" /></label>
+                <label>RES <input id="synth-res" type="range" min="0.5" max="8" step="0.1" value="2.5" /></label>
+                <label>LFO <input id="synth-lfo" type="range" min="0" max="12" step="0.01" value="4.67" /></label>
+                <label>DEPTH <input id="synth-depth" type="range" min="0" max="1" step="0.01" value="0.85" /></label>
+                <label>GAIN <input id="synth-gain" type="range" min="0" max="1.2" step="0.01" value="0.55" /></label>
+              </div>
+            </div>
+
+            <div class="studio-block studio-block--wide">
+              <h3>Sequencer · 16 steps</h3>
+              <div class="seq-transport">
+                <button id="seq-play" class="btn btn--play" type="button">▶ Seq</button>
+                <button id="seq-stop" class="btn" type="button">Stop</button>
+                <button id="seq-clear" class="btn btn--small" type="button">Clear</button>
+                <label>BPM <input id="seq-bpm" type="number" min="60" max="200" value="140" /></label>
+                <span class="meta-value" id="seq-step">step 0</span>
+              </div>
+              <div id="seq-grid" class="seq-grid"></div>
+            </div>
+
+            <div class="studio-block">
+              <h3>Master FX</h3>
+              <div class="eq-row">
+                <label>FILTER <input id="fx-filter" type="range" min="80" max="18000" step="10" value="18000" /></label>
+                <label>LFO <input id="fx-lfo" type="range" min="0" max="12" step="0.01" value="0" /></label>
+                <label>DEPTH <input id="fx-depth" type="range" min="0" max="1" step="0.01" value="0" /></label>
+                <label>DELAY <input id="fx-delay" type="range" min="0" max="800" step="1" value="0" /></label>
+                <label>MIX <input id="fx-delay-mix" type="range" min="0" max="1" step="0.01" value="0" /></label>
+                <label>CRUSH <input id="fx-crush" type="range" min="0" max="1" step="0.01" value="0" /></label>
+              </div>
+            </div>
+
+            <div class="studio-block">
+              <h3>Transitions</h3>
+              <div class="trans-row">
+                <button type="button" class="btn" data-transition="build">Build</button>
+                <button type="button" class="btn" data-transition="drop">Drop</button>
+                <button type="button" class="btn" data-transition="wobble">Wobble</button>
+                <button type="button" class="btn" data-transition="filter_sweep">Sweep</button>
+                <button type="button" class="btn" data-transition="crush">Crush</button>
+                <button type="button" class="btn" data-transition="clean">Clean</button>
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
+
       <section class="lower-grid">
         <article class="panel plan-card">
           <h2>Upcoming plan</h2>
@@ -188,7 +401,7 @@
       </section>
 
       <footer class="foot">
-        <span>MadCool DJ · local mix bus · Roon co-pilot on Simon · † stubs</span>
+        <span>MadCool DJ · local mix · studio bus · Roon co-pilot · † stubs</span>
       </footer>
     </div>
     <script type="module" src="/src/main.ts"></script>

@@ -185,10 +185,150 @@ export function createMcpServer(): McpServer {
   server.registerTool(
     "dj_fx_set",
     {
-      description: "Set FX/mixer parameters. Passes the `params` object straight through to the engine's fx.set command.",
-      inputSchema: { params: z.record(z.string(), z.unknown()).describe("Arbitrary fx key/value pairs") },
+      description:
+        "Set master FX: filter_hz, filter_res, lfo_hz, lfo_depth, delay_ms, delay_fb, delay_mix, crush, enabled.",
+      inputSchema: { params: z.record(z.string(), z.unknown()).describe("FX key/value pairs") },
     },
     async (args) => run("fx.set", args.params),
+  );
+
+  server.registerTool(
+    "dj_studio_status",
+    { description: "Snapshot of studio bus: FX, wobble synth, sampler pads, sequencer." },
+    async () => run("studio.status"),
+  );
+
+  server.registerTool(
+    "dj_studio_load_kit",
+    {
+      description: "Load a dubstep/sample kit directory (expects kit.json or WAVs).",
+      inputSchema: { path: z.string().min(1).optional().describe("Kit root; default dj-library/dubstep") },
+    },
+    async (args) => run("studio.loadKit", args),
+  );
+
+  server.registerTool(
+    "dj_sampler_trigger",
+    {
+      description: "Trigger a one-shot pad (kick, snare, hat, bass, riser, impact, …).",
+      inputSchema: {
+        pad: z.string().min(1),
+        velocity: z.number().min(0).max(1).optional(),
+      },
+    },
+    async (args) => run("sampler.trigger", args),
+  );
+
+  server.registerTool(
+    "dj_synth_note_on",
+    {
+      description: "Gate the wobble bass synth on (MIDI note).",
+      inputSchema: {
+        note: z.number().describe("MIDI note, e.g. 33 = A1"),
+        velocity: z.number().min(0).max(1).optional(),
+      },
+    },
+    async (args) => run("synth.noteOn", args),
+  );
+
+  server.registerTool(
+    "dj_synth_note_off",
+    { description: "Release the wobble bass synth gate." },
+    async () => run("synth.noteOff"),
+  );
+
+  server.registerTool(
+    "dj_synth_set",
+    {
+      description: "Set wobble synth params: waveform, gain, cutoff, resonance, lfo_hz, lfo_depth.",
+      inputSchema: { params: z.record(z.string(), z.unknown()) },
+    },
+    async (args) => run("synth.set", args.params),
+  );
+
+  server.registerTool(
+    "dj_seq_play",
+    { description: "Start the 16-step dubstep sequencer." },
+    async () => run("seq.play"),
+  );
+
+  server.registerTool(
+    "dj_seq_stop",
+    { description: "Stop the sequencer and reset to step 0." },
+    async () => run("seq.stop"),
+  );
+
+  server.registerTool(
+    "dj_seq_set_pattern",
+    {
+      description: "Set a 16-step pattern for kick|snare|hat|clap|fx (1/0 array).",
+      inputSchema: {
+        track: z.string().min(1),
+        steps: z.array(z.number()),
+      },
+    },
+    async (args) => run("seq.setPattern", args),
+  );
+
+  server.registerTool(
+    "dj_seq_set_bpm",
+    {
+      description: "Set sequencer BPM (default 140).",
+      inputSchema: { bpm: z.number().min(60).max(200) },
+    },
+    async (args) => run("seq.setBpm", args),
+  );
+
+  server.registerTool(
+    "dj_transition_run",
+    {
+      description: "Run a dubstep transition macro: build, drop, wobble, filter_sweep, crush, clean.",
+      inputSchema: { name: z.string().min(1) },
+    },
+    async (args) => run("transition.run", args),
+  );
+
+  server.registerTool(
+    "dj_music_status",
+    { description: "MiniMax music gen status: configured + recent jobs." },
+    async () => run("music.status"),
+  );
+
+  server.registerTool(
+    "dj_music_preview_prompt",
+    {
+      description: "Compose a Music 3.0 English creative-brief prompt from panel settings (does not generate audio).",
+      inputSchema: { params: z.record(z.string(), z.unknown()) },
+    },
+    async (args) => run("music.previewPrompt", args.params),
+  );
+
+  server.registerTool(
+    "dj_music_analyze_ref",
+    {
+      description: "Analyze a local reference track (BPM/title/artist/genre guess) and seed a MiniMax prompt.",
+      inputSchema: { path: z.string().min(1) },
+    },
+    async (args) => run("music.analyzeRef", args),
+  );
+
+  server.registerTool(
+    "dj_music_generate",
+    {
+      description:
+        "Start MiniMax Music generation (async job). Modes: generate (music-3.0) or cover (music-cover). Poll with dj_music_job.",
+      inputSchema: { params: z.record(z.string(), z.unknown()) },
+    },
+    async (args) => run("music.generate", args.params),
+  );
+
+  server.registerTool(
+    "dj_music_job",
+    {
+      description: "Poll a MiniMax music generation job by id.",
+      inputSchema: { id: z.string().min(1) },
+    },
+    async (args) => run("music.job", args),
   );
 
   server.registerTool(

@@ -8,6 +8,7 @@ from typing import Optional, Tuple
 import numpy as np
 
 from madcool_dj_engine.decode import load_stereo_44k
+from madcool_dj_engine.studio import StudioBus
 
 
 def equal_power_gains(x: float) -> Tuple[float, float]:
@@ -57,6 +58,7 @@ class DualDeckMixer:
         self.sr = sr
         self.crossfade = 0.0
         self.decks: dict[str, Optional[DeckState]] = {"a": None, "b": None}
+        self.studio = StudioBus(sr)
 
     def _deck(self, deck: str) -> Optional[DeckState]:
         if deck not in self.decks:
@@ -215,4 +217,7 @@ class DualDeckMixer:
                 state.playing = False
                 state.position = len(state.audio)
 
+        # Studio bus (sampler + synth + seq) summed pre-FX, then master FX
+        out += self.studio.render(n_frames)
+        out = self.studio.fx.process(out)
         return np.tanh(out).astype(np.float32)

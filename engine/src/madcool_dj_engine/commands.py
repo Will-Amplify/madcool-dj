@@ -36,9 +36,13 @@ class EngineCommandHandler:
     def __init__(self, mixer: Optional[DualDeckMixer] = None, broadcast: Optional[Callable[[str, dict], None]] = None):
         self.mixer = mixer if mixer is not None else DualDeckMixer()
         self.broadcast = broadcast or (lambda event, data: None)
-        self.fx_state: dict[str, Any] = {}
         self.library_index: list[dict[str, Any]] = []
         self.autopilot = Autopilot(self, self._emit)
+        # Auto-load dubstep kit if present (non-fatal)
+        try:
+            self.mixer.studio.load_default_kit()
+        except Exception:
+            pass
 
         self._commands: dict[str, Callable[[dict], Any]] = {
             "status": self._status,
@@ -65,6 +69,19 @@ class EngineCommandHandler:
             "autopilot.enable": self._autopilot_enable,
             "autopilot.disable": self._autopilot_disable,
             "fx.set": self._fx_set,
+            "studio.status": self._studio_status,
+            "studio.loadKit": self._studio_load_kit,
+            "sampler.trigger": self._sampler_trigger,
+            "synth.noteOn": self._synth_note_on,
+            "synth.noteOff": self._synth_note_off,
+            "synth.set": self._synth_set,
+            "seq.setPattern": self._seq_set_pattern,
+            "seq.setBassNotes": self._seq_set_bass_notes,
+            "seq.setBpm": self._seq_set_bpm,
+            "seq.play": self._seq_play,
+            "seq.stop": self._seq_stop,
+            "seq.clear": self._seq_clear,
+            "transition.run": self._transition_run,
         }
 
     def dispatch(self, cmd: str, params: dict) -> Any:
@@ -113,7 +130,8 @@ class EngineCommandHandler:
             "crossfade": self.mixer.crossfade,
             "decks": {"a": self._deck_summary("a"), "b": self._deck_summary("b")},
             "autopilot": self.autopilot.enabled,
-            "fx": dict(self.fx_state),
+            "fx": self.mixer.studio.fx.snapshot(),
+            "studio": self.mixer.studio.snapshot(),
             "audio": audio_info(),
         }
 
@@ -361,5 +379,76 @@ class EngineCommandHandler:
         return {"autopilot": False}
 
     def _fx_set(self, params: dict) -> dict:
-        self.fx_state.update(params)
-        return {"fx": dict(self.fx_state)}
+        # Accept flat params; ignore unknown keys inside MasterFX.set
+        clean = {k: v for k, v in params.items() if k != "deck"}
+        self.mixer.studio.fx.set(**clean)
+        return {"fx": self.mixer.studio.fx.snapshot()}
+
+    def _studio_status(self, params: dict) -> dict:
+        return self.mixer.studio.snapshot()
+
+    def _studio_load_kit(self, params: dict) -> dict:
+        path = params.get("path")
+        if path:
+            return self.mixer.studio.sampler.load_kit(Path(str(path)))
+        return self.mixer.studio.load_default_kit()
+
+    def _sampler_trigger(self, params: dict) -> dict:
+        pad = str(params.get("pad") or "")
+        vel = float(params.get("velocity", 1.0))
+        ok = self.mixer.studio.sampler.trigger(pad, vel)
+        if not ok:
+            raise CommandError(f"unknown_pad: {pad}")
+        return {"pad": pad, "velocity": vel}
+
+    def _synth_note_on(self, params: dict) -> dict:
+        note = float(params.get("note", 33))
+        vel = float(params.get("velocity", 1.0))
+        self.mixer.studio.synth.note_on(note, vel)
+        return {"synth": self.mixer.studio.synth.snapshot()}
+
+    def _synth_note_off(self, params: dict) -> dict:
+        self.mixer.studio.synth.note_off()
+        return {"synth": self.mixer.studio.synth.snapshot()}
+
+    def _synth_set(self, params: dict) -> dict:
+        self.mixer.studio.synth.set(**params)
+        return {"synth": self.mixer.studio.synth.snapshot()}
+
+    def _seq_set_pattern(self, params: dict) -> dict:
+        track = str(params.get("track") or "kick")
+        steps = params.get("steps")
+        if not isinstance(steps, list):
+            raise CommandError("seq_steps_required")
+        self.mixer.studio.seq.set_pattern(track, steps)
+        return {"seq": self.mixer.studio.seq.snapshot()}
+
+    def _seq_set_bass_notes(self, params: dict) -> dict:
+        notes = params.get("notes")
+        if not isinstance(notes, list):
+            raise CommandError("seq_bass_notes_required")
+        self.mixer.studio.seq.set_bass_notes(notes)
+        return {"seq": self.mixer.studio.seq.snapshot()}
+
+    def _seq_set_bpm(self, params: dict) -> dict:
+        self.mixer.studio.seq.set_bpm(float(params.get("bpm", 140)))
+        return {"seq": self.mixer.studio.seq.snapshot()}
+
+    def _seq_play(self, params: dict) -> dict:
+        self.mixer.studio.seq.play()
+        return {"seq": self.mixer.studio.seq.snapshot()}
+
+    def _seq_stop(self, params: dict) -> dict:
+        self.mixer.studio.seq.stop()
+        return {"seq": self.mixer.studio.seq.snapshot()}
+
+    def _seq_clear(self, params: dict) -> dict:
+        self.mixer.studio.seq.clear()
+        return {"seq": self.mixer.studio.seq.snapshot()}
+
+    def _transition_run(self, params: dict) -> dict:
+        name = str(params.get("name") or params.get("transition") or "")
+        result = self.mixer.studio.transition(name)
+        if not result.get("ok"):
+            raise CommandError(result.get("error") or "transition_failed")
+        return result

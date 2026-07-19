@@ -116,5 +116,10 @@ export async function execute(cmd: string, params: Record<string, unknown> = {})
     return searchSources(q);
   }
 
+  if (cmd.startsWith("music.")) {
+    const { handleMusicCommand } = await import("./minimax/index.js");
+    return handleMusicCommand(cmd, params);
+  }
+
   return engineClient.request(cmd, params);
 }

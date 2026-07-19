@@ -14,3 +14,4 @@ __pycache__/
 .DS_Store
 .worktrees/
 fixtures/clips/*.wav
+# Generated MiniMax downloads live under ~/Music/dj-library/generated (outside repo)
