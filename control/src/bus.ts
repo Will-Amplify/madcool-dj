@@ -6,6 +6,7 @@
 
 import { engineClient } from "./engineClient.js";
 import { control as roonControl, listZones as roonListZones, type ControlAction } from "./roon.js";
+import { searchSources } from "./sources/index.js";
 
 const CONTROL_ACTIONS: readonly ControlAction[] = ["play", "pause", "playpause", "stop", "next", "previous"];
 
@@ -33,6 +34,14 @@ export async function execute(cmd: string, params: Record<string, unknown> = {})
 
   if (cmd.startsWith("roon.")) {
     throw new Error(`roon_unknown_command: ${cmd}`);
+  }
+
+  if (cmd === "sources.search") {
+    const q = params.q;
+    if (typeof q !== "string") {
+      throw new Error("sources_search_missing_q");
+    }
+    return searchSources(q);
   }
 
   return engineClient.request(cmd, params);
