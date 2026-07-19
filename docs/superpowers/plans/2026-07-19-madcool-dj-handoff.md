@@ -1,63 +1,115 @@
-# MadCool DJ — handoff notes (2026-07-19)
+# MadCool DJ — closeout & handoff (2026-07-19)
 
-Fast path for the next agent / Will on Tom.
+**Status:** Closed on `master` @ `033ad3d` · remote synced · verify green  
+**Host:** Tom · PipeWire shared with Roon on Simon  
+**Repo:** https://github.com/Will-Amplify/madcool-dj
 
-## Stack
+---
+
+## One-liner
+
+Dual-process local DJ: Python engine (mix/analyze/autopilot/studio) + TypeScript control (HTTP/WS/MCP/Roon/MiniMax) + Vite dashboard. Bones hardened; flesh live (VU, beatmatch, plan UI, keys).
+
+---
+
+## Boot
 
 ```bash
 cd ~/Projects/madcool-dj
-./scripts/verify.sh          # full gate: pytest + builds + smokes + e2e
-./scripts/dev.sh             # http://127.0.0.1:8787/  (or DJ_HOST)
+cp -n .env.example .env   # set DJ_TOKEN if DJ_HOST is non-loopback
+./scripts/verify.sh       # gate before trusting a session
+./scripts/dev.sh          # dashboard at http://<DJ_HOST>:8787/
 ```
 
-- **Engine** (Python): mix bus, decks, studio (synth/seq/FX/sampler), library, path jail
-- **Control** (TS/Hono `:8787`): HTTP/WS/MCP, Roon, MiniMax music gen, auth
-- **Audio**: `DJ_AUDIO_MODE=shared` → PipeWire Default Sink (coexist with Roon)
-- **Roon**: Simon `100.109.124.125` — zone transport only, not PCM into decks
+Paste `DJ_TOKEN` into the dashboard token field when not on loopback.
 
-## Auth (professional gate)
+Optional always-on:
 
-- Non-loopback `DJ_HOST` **requires** non-empty `DJ_TOKEN` (control refuses to boot otherwise).
-- Loopback may run without a token (e2e does this).
-- Put token in dashboard “token” field (persists + rebinds WS).
+```bash
+cp scripts/systemd/*.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now madcool-dj-engine.service madcool-dj-control.service
+```
 
-## What shipped (flesh-out 2026-07-19 pm)
+Shared audio with Roon:
 
-| Area | Flesh |
-|------|--------|
-| Live meters | `levels` WS @ ~15 Hz + mixer-core VU (L/R/A/B) |
-| Autopilot | Beatmatch ±3%, intro cue from beats/energy, cancelable ramp |
-| Crossfade | `mixer.crossfade {to, bars\|seconds}` ramp API |
-| EQ | Stateful one-pole via scipy (flat = bypass) |
-| Plan UI | Structured card (rate/cue/ramp), not raw JSON |
-| Keyboard | A/B focus · Space play · ←/→ xfade · Q cue |
-| Index | `library.scan {analyze:true, analyzeLimit?}` fills cache |
-| systemd | `scripts/systemd/*.service` user units cradle |
+```bash
+./scripts/roon-audio-mode.sh shared   # RAAT → plug:pipewire
+```
 
-## Verify cradle
+---
+
+## Surface map
+
+| Layer | Owns |
+|-------|------|
+| `engine/` | Decks, EQ, FX, studio, analyze cache, autopilot, path jail, `levels` telemetry |
+| `control/` | `:8787` HTTP + `/v1/live` WS + MCP + Roon + MiniMax bus |
+| `dashboard/` | Dual decks, Files, Roon, Studio, Music Gen, VU, plan card |
+| `scripts/verify.sh` | pytest → builds → control smokes → e2e |
+
+**Keyboard:** A/B focus · Space play/pause · ←/→ crossfade · Q cue
+
+---
+
+## Commands worth remembering
+
+```text
+status · library.scan|list|browse · analyze.file
+deck.load|play|pause|seek|jog|cue|setCue|setRate|setGain|setEq
+mixer.crossfade {position} | {to, bars|seconds}
+autopilot.enable|disable
+device.claim|release|setMode
+fx.set · studio.* · sampler.* · synth.* · seq.* · transition.run
+roon.zones|control|seek|volume|mute|settings
+music.status|previewPrompt|analyzeRef|lyrics|generate|job|jobs
+```
+
+Autopilot: BPM ±6% pick → intro cue → rate ±3% → mid snap → ramp. Manual deck/mixer cancels ramp.
+
+---
+
+## Auth & jail
+
+- Non-loopback bind **requires** `DJ_TOKEN` (boot refuse).
+- Paths only under: `MUSIC_ROOT`, repo `fixtures/`, `~/.cache/madcool-dj`, `~/Music/dj-library` (+ `MADCOOL_DJ_EXTRA_ROOTS`).
+- Unix socket mode `0600`. `.env` never committed.
+
+---
+
+## Verify receipt (closeout)
 
 ```bash
 ./scripts/verify.sh
-# 56 pytest · control/dashboard build · auth/sources/roon/mcp smokes · e2e PASS
+# 2026-07-19 closeout: ALL GREEN
+# 56 pytest · control/dashboard build · auth/sources/roon/mcp · e2e PASS
+# e2e: health · scan=2 · deck A playing clip_a · autopilot · browse=2 · studio · xfade-to · music.status
 ```
 
-Control-only: `cd control && npm run smoke`
+---
 
-## MiniMax
+## Manual remaining (Will / Tom)
 
-- Key: `MINIMAX_API_KEY` in `.env` **or** `~/MiniMax API.txt` (auto-load; do not commit)
-- API: `https://api.minimax.io/v1/music_generation` model `music-3.0`
-- Cmds: `music.status` | `music.previewPrompt` | `music.analyzeRef` | `music.lyrics` | `music.generate` | `music.job` | `music.jobs`
+1. Roon → Settings → Extensions → Enable **MadCool DJ** on Simon (if not already).
+2. Confirm SXW DAC hear path with README “Listen smoke” or live fixtures.
+3. Put dashboard token = `.env` `DJ_TOKEN` when serving on Tailscale/`0.0.0.0`.
 
-## Pitfalls
+---
 
-- Don’t `pkill -f` patterns that match the shell command line
-- Shared mode needs Roon RAAT on `plug:pipewire` (`./scripts/roon-audio-mode.sh shared`)
-- `dashboard/dist` is gitignored — `dev.sh` / `npm run build` before serving
-- Path jail: only MUSIC_ROOT, repo `fixtures/`, `~/.cache/madcool-dj`, `~/Music/dj-library` (+ `MADCOOL_DJ_EXTRA_ROOTS`)
-- Generated MiniMax URLs expire ~24h — we download immediately
+## Out of scope (still cradles)
 
-## Repo
+Spotify/Tidal PCM · stems · Roon as mix output · cloud ML beyond MiniMax gen
 
-- Remote: `https://github.com/Will-Amplify/madcool-dj`
-- Branch: `master`
+---
+
+## Docs
+
+| Doc | Role |
+|-----|------|
+| This file | Closeout / next-agent fast path |
+| `docs/superpowers/specs/2026-07-18-madcool-dj-design.md` | Locked design |
+| `docs/superpowers/plans/2026-07-18-madcool-dj.md` | Original impl plan (historical) |
+| `docs/superpowers/plans/2026-07-18-madcool-dj-e2e-notes.md` | Early e2e sandbox notes |
+| `README.md` | Runbook |
+
+**Next agent:** start at `./scripts/verify.sh`, then `./scripts/dev.sh`. Do not re-scaffold.

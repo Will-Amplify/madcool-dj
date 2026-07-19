@@ -16,6 +16,10 @@ cp .env.example .env
 
 `dev.sh` builds the dashboard if needed, starts the engine (`--play` when PortAudio/sounddevice is available, protocol-only otherwise), waits for its socket, then runs `dj-control` in the foreground. Ctrl-C tears both down.
 
+Dashboard keyboard (when not typing in an input): **A/B** focus deck · **Space** play/pause · **←/→** crossfade · **Q** cue.
+
+Optional systemd user units: `scripts/systemd/madcool-dj-{engine,control}.service` (see handoff).
+
 ## e2e smoke
 
 `./scripts/e2e-smoke.sh` boots its own isolated engine + control pair (own socket at `/tmp/madcool-e2e.sock`, own port at `:8799` by default — never touches whatever `dev.sh` has running) and drives the full protocol path over the HTTP command bus: `health` → `library.scan` (fixtures) → `analyze.file` on both clips → `deck.load` a/b → `deck.play a` → `autopilot.enable` → `status` → `library.browse` → `studio.status` (+ optional `music.status`). It asserts load/play/autopilot/browse — not just health — and tears both processes down on exit.

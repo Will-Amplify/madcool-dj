@@ -92,7 +92,7 @@ There is no PulseAudio/PipeWire session running in this sandboxed container, so 
 3. **Open the dashboard** (`http://<tom-host>:8787/`, built already at `dashboard/dist`) and eyeball dual-deck state, meters, and the agent/activity log against a live `dj-control` (via `./scripts/dev.sh`, not the isolated `e2e-smoke.sh` pair) to sanity-check the UI against real state once audio + Roon are both live.
 4. If re-running `e2e-smoke.sh` inside a sandboxed shell again and it appears to hang after printing `PASS`, it's the cleanup-signal quirk above — safe to force-kill the leftover `madcool_dj_engine` / `tsx src/index.ts` processes rather than assuming a real hang.
 
-## Handoff update (2026-07-18 evening, bare Tom)
+## Handoff update (2026-07-19 evening, bare Tom)
 
 Verified on live Tom (PipeWire session up, Simon reachable):
 
@@ -108,4 +108,15 @@ Verified on live Tom (PipeWire session up, Simon reachable):
 | RAAT shared path | `plug:pipewire` via `scripts/roon-audio-mode.sh shared` |
 
 Decks = local mix only. Roon panel = full transport. Files panel = directory browse.
+
+## Closeout (2026-07-19)
+
+Canonical handoff: `docs/superpowers/plans/2026-07-19-madcool-dj-handoff.md`.
+
+| Check | Result |
+|-------|--------|
+| Branch | `master` @ `033ad3d` (synced with `origin/master`) |
+| `./scripts/verify.sh` | **ALL GREEN** (56 pytest + builds + smokes + e2e) |
+| Flesh | Live VU, beatmatched autopilot, plan card, keyboard, ramp crossfade |
+| Remaining manual | Roon Enable once · listen smoke on SXW · dashboard token if non-loopback |
 
