@@ -9,7 +9,7 @@ import { serve } from "@hono/node-server";
 
 import { engineClient } from "./engineClient.js";
 import { createApp } from "./routes.js";
-import { closeRoon } from "./roon.js";
+import { closeRoon, connectRoon, roonStatus } from "./roon.js";
 import { attachWebSocket } from "./ws.js";
 
 const host = process.env.DJ_HOST || "127.0.0.1";
@@ -33,6 +33,22 @@ const server = serve({ fetch: app.fetch, hostname: host, port }, (info) => {
 });
 
 attachWebSocket(server as unknown as Server, engineClient);
+
+// Register with Roon Core immediately so "MadCool DJ" appears under
+// Settings → Extensions (pending Enable). Keep the websocket open even if
+// pairing times out waiting for human approval.
+void connectRoon()
+  .then(() => {
+    const s = roonStatus();
+    console.log(`[roon] paired — phase=${s.phase} core=${s.core?.display_name ?? "?"}`);
+  })
+  .catch((err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[roon] ${msg}`);
+    console.warn(
+      "[roon] Keep this process running. On Simon: Roon → Settings → Extensions → Enable “MadCool DJ”.",
+    );
+  });
 
 function shutdown(): void {
   console.log("[control] shutting down");
