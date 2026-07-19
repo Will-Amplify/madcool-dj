@@ -39,7 +39,9 @@ def main(argv: list[str] | None = None) -> None:
     handler = EngineCommandHandler()
     server = EngineProtocolServer(args.sock, handler.dispatch)
     handler.broadcast = server.broadcast
+    handler.telemetry.broadcast = server.broadcast
     server.start()
+    handler.telemetry.start()
     logger.info("listening on %s", args.sock)
 
     if args.play:
@@ -60,6 +62,7 @@ def main(argv: list[str] | None = None) -> None:
         while not stop_event.is_set():
             stop_event.wait(0.5)
     finally:
+        handler.telemetry.stop()
         stop_stream()
         server.stop()
 

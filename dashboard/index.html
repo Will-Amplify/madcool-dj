@@ -118,6 +118,12 @@
             <input id="crossfader" type="range" min="0" max="1" step="0.01" value="0" aria-label="Crossfader" />
             <div class="crossfader-value" id="crossfader-value">0.00</div>
           </div>
+          <div class="vu" aria-hidden="true" title="Master peak">
+            <div class="vu-chan"><span>L</span><div class="vu-track"><div id="vu-l" class="vu-fill"></div></div></div>
+            <div class="vu-chan"><span>R</span><div class="vu-track"><div id="vu-r" class="vu-fill"></div></div></div>
+            <div class="vu-chan"><span>A</span><div class="vu-track"><div id="vu-a" class="vu-fill vu-fill--a"></div></div></div>
+            <div class="vu-chan"><span>B</span><div class="vu-track"><div id="vu-b" class="vu-fill vu-fill--b"></div></div></div>
+          </div>
           <button id="btn-autopilot" class="btn btn--toggle" type="button">Autopilot</button>
           <button id="btn-claim" class="btn" type="button">Claim DAC</button>
           <button id="btn-release" class="btn" type="button">Release DAC</button>

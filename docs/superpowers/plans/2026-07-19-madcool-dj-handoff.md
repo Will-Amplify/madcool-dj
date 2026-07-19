@@ -21,30 +21,24 @@ cd ~/Projects/madcool-dj
 - Loopback may run without a token (e2e does this).
 - Put token in dashboard “token” field (persists + rebinds WS).
 
-## What shipped (audit sweep)
+## What shipped (flesh-out 2026-07-19 pm)
 
-P0/P1 hardening applied 2026-07-19:
-
-| Area | Fix |
-|------|-----|
-| Engine nice | Removed process-wide `os.nice` (was starving audio) |
-| Master FX | Default 18 kHz = bypass; engaged filter uses `scipy.lfilter` |
-| Autopilot | Join/generation-safe enable/disable (no double planner) |
-| Paths | Allowlist jail + socket `0600`; kit paths can’t escape kit root |
-| ffmpeg | Timeouts on decode/analyze |
-| Auth | Token required off-loopback; timing-safe compare; upload size cap |
-| Engine client | Clear line buffer on reconnect |
-| WS | Single multiplexer fan-out |
-| MiniMax | Download AbortController timeout; MCP `lyrics`/`jobs` |
-| Dashboard | XSS→textContent; token WS rebind; Roon scrub-aware refresh; fixtures path |
-| `dev.sh` | No `exec` — trap kills engine on exit |
-| e2e | Asserts load/play/autopilot/browse/studio (not just health) |
+| Area | Flesh |
+|------|--------|
+| Live meters | `levels` WS @ ~15 Hz + mixer-core VU (L/R/A/B) |
+| Autopilot | Beatmatch ±3%, intro cue from beats/energy, cancelable ramp |
+| Crossfade | `mixer.crossfade {to, bars\|seconds}` ramp API |
+| EQ | Stateful one-pole via scipy (flat = bypass) |
+| Plan UI | Structured card (rate/cue/ramp), not raw JSON |
+| Keyboard | A/B focus · Space play · ←/→ xfade · Q cue |
+| Index | `library.scan {analyze:true, analyzeLimit?}` fills cache |
+| systemd | `scripts/systemd/*.service` user units cradle |
 
 ## Verify cradle
 
 ```bash
 ./scripts/verify.sh
-# 53 pytest · control/dashboard build · auth/sources/roon/mcp smokes · e2e PASS
+# 56 pytest · control/dashboard build · auth/sources/roon/mcp smokes · e2e PASS
 ```
 
 Control-only: `cd control && npm run smoke`

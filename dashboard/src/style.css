@@ -258,6 +258,48 @@ html, body {
   white-space: pre-wrap;
 }
 .plan-empty { margin: 0; }
+.plan-card {
+  display: grid;
+  gap: 0.35rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+.plan-card strong { color: var(--teal); font-weight: 500; }
+.plan-card .plan-path { color: var(--text); word-break: break-all; }
+
+.vu {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem 0.55rem;
+  margin: 0.35rem 0 0.65rem;
+  padding: 0.4rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--bg2) 80%, #000);
+}
+.vu-chan {
+  display: grid;
+  grid-template-columns: 0.9rem 1fr;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.65rem;
+  color: var(--muted);
+  font-family: var(--font-mono);
+}
+.vu-track {
+  height: 0.45rem;
+  border-radius: 2px;
+  background: #0a1014;
+  overflow: hidden;
+}
+.vu-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--teal-dim), var(--teal));
+  transition: width 40ms linear;
+}
+.vu-fill--a { background: linear-gradient(90deg, #2a6a7a, #4ecdc4); }
+.vu-fill--b { background: linear-gradient(90deg, #6a5a2a, #e8c547); }
 
 .foot { margin-top: 1.25rem; color: var(--muted); font-size: 0.7rem; letter-spacing: 0.04em; }
 

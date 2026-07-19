@@ -24,6 +24,7 @@ from madcool_dj_engine.cache import load_analysis
 from madcool_dj_engine.library import browse_dir, scan_dir
 from madcool_dj_engine.mixer import DualDeckMixer
 from madcool_dj_engine.paths import resolve_under_allowlist
+from madcool_dj_engine.telemetry import Telemetry
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_LIBRARY_ROOT = _REPO_ROOT / "fixtures" / "clips"
@@ -39,6 +40,7 @@ class EngineCommandHandler:
         self.broadcast = broadcast or (lambda event, data: None)
         self.library_index: list[dict[str, Any]] = []
         self.autopilot = Autopilot(self, self._emit)
+        self.telemetry = Telemetry(self, self._emit)
         # Auto-load dubstep kit if present (non-fatal)
         try:
             self.mixer.studio.load_default_kit()
@@ -96,6 +98,11 @@ class EngineCommandHandler:
     def _emit(self, event: str, data: dict) -> None:
         self.broadcast(event, data)
 
+    def _human_override(self) -> None:
+        """Deck/mixer moves cancel an in-flight autopilot ramp."""
+        if self.autopilot.enabled:
+            self.autopilot.notify_override(clear_plan=False)
+
     def _deck_summary(self, name: str) -> dict:
         state = self.mixer.decks.get(name)
         if state is None:
@@ -135,6 +142,8 @@ class EngineCommandHandler:
             "studio": self.mixer.studio.snapshot(),
             "audio": audio_info(),
             "fixtures_root": str(DEFAULT_LIBRARY_ROOT),
+            "levels": getattr(self.mixer, "last_levels", {}),
+            "plan": self.autopilot.last_plan,
         }
 
     def _device_claim(self, params: dict) -> dict:
@@ -203,6 +212,7 @@ class EngineCommandHandler:
             self.mixer.load(deck, path, start_sec=start_sec, source=source, title=title)
         except Exception as exc:
             raise CommandError(f"deck_load_failed: {exc}") from exc
+        self._human_override()
         summary = self._deck_summary(deck)
         # Instant overview from the loaded PCM (no re-decode).
         try:
@@ -237,11 +247,13 @@ class EngineCommandHandler:
             self.mixer.play(deck)
         except ValueError as exc:
             raise CommandError(str(exc)) from exc
+        self._human_override()
         return self._deck_summary(deck)
 
     def _deck_pause(self, params: dict) -> dict:
         deck = self._require_deck(params)
         self.mixer.pause(deck)
+        self._human_override()
         return self._deck_summary(deck)
 
     def _deck_seek(self, params: dict) -> dict:
@@ -325,9 +337,38 @@ class EngineCommandHandler:
         return self._deck_summary(deck)
 
     def _mixer_crossfade(self, params: dict) -> dict:
+        """Set crossfade immediately (`position`) or ramp (`to` + `bars`/`seconds`)."""
+        if "to" in params:
+            dest = params.get("to")
+            if dest not in ("a", "b"):
+                raise CommandError("invalid_to: expected 'a' or 'b'")
+            target = 0.0 if dest == "a" else 1.0
+            seconds = params.get("seconds")
+            bars = params.get("bars")
+            if seconds is not None:
+                duration = float(seconds)
+            elif bars is not None:
+                bpm = 128.0
+                for name in ("a", "b"):
+                    st = self.mixer.decks.get(name)
+                    if st is not None and st.playing and st.path:
+                        cached = load_analysis(st.path)
+                        if cached and cached.get("bpm"):
+                            bpm = float(cached["bpm"])
+                            break
+                # 4/4 bar length
+                duration = float(bars) * (4.0 * 60.0 / bpm)
+            else:
+                duration = 4.0
+            self._human_override()
+            self.mixer.ramp_crossfade(target, duration_sec=max(0.1, duration))
+            return {"crossfade": self.mixer.crossfade, "ramping_to": target, "duration_sec": duration}
+
         position = params.get("position")
         if position is None:
-            raise CommandError("missing_position")
+            raise CommandError("missing_position_or_to")
+        self._human_override()
+        self.mixer.cancel_crossfade_ramp()
         self.mixer.set_crossfade(float(position))
         return {"crossfade": self.mixer.crossfade}
 
@@ -349,7 +390,18 @@ class EngineCommandHandler:
         except PermissionError as exc:
             raise CommandError(str(exc)) from exc
         self.library_index = [{"path": p} for p in scan_dir(root_path)]
-        return {"root": str(root_path), "count": len(self.library_index)}
+        analyzed = 0
+        if params.get("analyze"):
+            # Sequential, Tom-gentle — fills cache so autopilot has candidates.
+            limit = int(params.get("analyzeLimit") or 24)
+            for entry in self.library_index[: max(0, limit)]:
+                try:
+                    analyze_file(Path(entry["path"]))
+                    analyzed += 1
+                    self._emit("log", {"msg": f"analyzed {Path(entry['path']).name}"})
+                except Exception as exc:  # noqa: BLE001
+                    self._emit("log", {"msg": f"analyze_failed {entry['path']}: {exc}"})
+        return {"root": str(root_path), "count": len(self.library_index), "analyzed": analyzed}
 
     def _library_list(self, params: dict) -> dict:
         tracks = []

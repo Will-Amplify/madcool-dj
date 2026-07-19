@@ -72,11 +72,13 @@ class _FakeMixer:
         self.sr = sr
         self.crossfade = 0.0
         self.decks: dict[str, object] = {"a": None, "b": None}
-        self.loaded: list[tuple[str, str]] = []
+        self.loaded: list[tuple[str, str, float]] = []
         self.played: list[str] = []
+        self.rates: dict[str, float] = {}
+        self.ramps: list[tuple[float, float]] = []
 
     def load(self, deck: str, path, start_sec: float = 0.0) -> None:
-        self.loaded.append((deck, str(path)))
+        self.loaded.append((deck, str(path), float(start_sec)))
         self.decks[deck] = _FakeDeck(path, n_frames=44100 * 60)
 
     def play(self, deck: str) -> None:
@@ -84,8 +86,18 @@ class _FakeMixer:
         if self.decks[deck] is not None:
             self.decks[deck].playing = True
 
+    def set_rate(self, deck: str, rate: float) -> None:
+        self.rates[deck] = float(rate)
+
     def set_crossfade(self, x: float) -> None:
         self.crossfade = x
+
+    def cancel_crossfade_ramp(self) -> None:
+        pass
+
+    def ramp_crossfade(self, target: float, duration_sec: float = 4.0, steps: int = 24) -> None:
+        self.ramps.append((float(target), float(duration_sec)))
+        self.crossfade = float(target)
 
 
 class _FakeHandler:
@@ -144,9 +156,11 @@ def test_tick_plans_and_loads_opposite_deck_within_horizon(tmp_path: Path, monke
     ap.enabled = True
     ap.tick()
 
-    assert mixer.loaded == [("b", str(close))]
+    assert mixer.loaded == [("b", str(close), 0.0)]
     assert mixer.played == ["b"]
-    assert mixer.crossfade == pytest.approx(0.5)  # immediate snap; ramp continues in background
+    assert mixer.rates.get("b") == pytest.approx(128 / 129, rel=1e-3)
+    assert mixer.ramps  # beatmatched ramp toward B
+    assert mixer.crossfade == pytest.approx(1.0)  # fake ramp snaps to target
 
     assert len(events) == 1
     event_name, data = events[0]
@@ -154,6 +168,8 @@ def test_tick_plans_and_loads_opposite_deck_within_horizon(tmp_path: Path, monke
     assert data["from"] == "a"
     assert data["to"] == "b"
     assert data["path"] == str(close)
+    assert "rate" in data
+    assert "cue_sec" in data
 
 
 def test_tick_disabled_is_a_noop(tmp_path: Path, monkeypatch):
@@ -199,7 +215,7 @@ def test_tick_only_plans_once_per_playthrough(tmp_path: Path, monkeypatch):
     ap.tick()
     ap.tick()  # deck "a" is still the first playing deck found — must not re-plan
 
-    assert mixer.loaded == [("b", str(close))]
+    assert mixer.loaded == [("b", str(close), 0.0)]
     assert len(events) == 1
 
 
@@ -228,6 +244,7 @@ def test_tick_no_plan_when_no_candidate_survives_window(tmp_path: Path, monkeypa
     ap.tick()
 
     assert mixer.loaded == []
-    assert events == []
+    assert len(events) == 1
+    assert events[0][1].get("reason") == "no_candidate"
     # Guard still trips so we don't retry every tick for the rest of the playthrough.
     assert ap._planned_for == str(active)

@@ -22,6 +22,8 @@ interface StatusResult {
   decks: { a: DeckSummary; b: DeckSummary };
   autopilot: boolean;
   fixtures_root?: string;
+  plan?: PlanEvent | null;
+  levels?: LevelsEvent;
   audio?: {
     mode?: string;
     stream_active?: boolean;
@@ -40,6 +42,28 @@ interface StatusResult {
       bass_notes?: number[];
     };
   };
+}
+
+interface LevelsEvent {
+  peak_l?: number;
+  peak_r?: number;
+  deck_a?: number;
+  deck_b?: number;
+  crossfade?: number;
+}
+
+interface PlanEvent {
+  from?: string;
+  to?: string;
+  path?: string | null;
+  bpm?: number | null;
+  current_bpm?: number | null;
+  rate?: number;
+  cue_sec?: number;
+  remaining_sec?: number;
+  ramp_sec?: number;
+  reason?: string;
+  cancelled?: boolean;
 }
 
 interface TrackAnalysis {
@@ -358,6 +382,14 @@ function updateDeckUi(deck: DeckName, d: DeckSummary): void {
   const rate = d.rate ?? 1;
   const pct = ((rate - 1) * 100).toFixed(1);
   byId<HTMLSpanElement>(`deck-${deck}-rate-val`).textContent = `${Number(pct) >= 0 ? "+" : ""}${pct}%`;
+  const rateEl = byId<HTMLInputElement>(`deck-${deck}-rate`);
+  if (document.activeElement !== rateEl) rateEl.value = String(rate);
+  const gainEl = byId<HTMLInputElement>(`deck-${deck}-gain`);
+  if (document.activeElement !== gainEl && d.gain != null) gainEl.value = String(d.gain);
+  for (const band of ["low", "mid", "high"] as const) {
+    const eqEl = byId<HTMLInputElement>(`deck-${deck}-eq-${band}`);
+    if (document.activeElement !== eqEl && d.eq?.[band] != null) eqEl.value = String(d.eq[band]);
+  }
   if (!scrubbing[deck]) {
     const scrub = byId<HTMLInputElement>(`deck-${deck}-scrub`);
     const dur = d.duration_sec || 0;
@@ -998,6 +1030,8 @@ async function poll(): Promise<void> {
     }
     updateDeckUi("a", st.decks.a);
     updateDeckUi("b", st.decks.b);
+    if (st.plan) renderPlan(st.plan);
+    if (st.levels) applyLevels(st.levels);
     const seq = st.studio?.seq;
     if (seq) {
       const stepEl = document.getElementById("seq-step");
@@ -1071,17 +1105,122 @@ function connectWs(): void {
     try {
       const msg = JSON.parse(String(ev.data));
       if (msg.event === "plan") {
-        planBody.replaceChildren();
-        const pre = document.createElement("pre");
-        pre.textContent = JSON.stringify(msg.data, null, 2);
-        planBody.appendChild(pre);
+        renderPlan(msg.data);
       }
-      if (msg.event) log(`${msg.event} ${JSON.stringify(msg.data ?? {})}`.slice(0, 180));
+      if (msg.event === "levels" && msg.data) {
+        applyLevels(msg.data as LevelsEvent);
+      }
+      if (msg.event === "log" && msg.data?.msg) {
+        log(String(msg.data.msg));
+      } else if (msg.event) {
+        log(`${msg.event} ${JSON.stringify(msg.data ?? {})}`.slice(0, 180));
+      }
     } catch {
       /* ignore */
     }
   };
 }
+
+function setVu(id: string, value: number | undefined): void {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const pct = Math.round(Math.max(0, Math.min(1, Number(value) || 0)) * 100);
+  (el as HTMLElement).style.width = `${pct}%`;
+}
+
+function applyLevels(data: LevelsEvent): void {
+  setVu("vu-l", data.peak_l);
+  setVu("vu-r", data.peak_r);
+  setVu("vu-a", data.deck_a);
+  setVu("vu-b", data.deck_b);
+  if (typeof data.crossfade === "number" && document.activeElement !== crossfader) {
+    crossfader.value = String(data.crossfade);
+    crossfaderValue.textContent = data.crossfade.toFixed(2);
+  }
+}
+
+function renderPlan(data: PlanEvent | null | undefined): void {
+  planBody.replaceChildren();
+  if (!data || data.cancelled) {
+    const p = document.createElement("p");
+    p.className = "plan-empty";
+    p.textContent = data?.cancelled ? "Plan cancelled (manual override)." : "No transition planned yet.";
+    planBody.appendChild(p);
+    return;
+  }
+  if (data.reason === "no_candidate") {
+    const p = document.createElement("p");
+    p.className = "plan-empty";
+    p.textContent = `No candidate within BPM window · ${data.remaining_sec ?? "?"}s left on ${String(data.from || "?").toUpperCase()}`;
+    planBody.appendChild(p);
+    return;
+  }
+  const card = document.createElement("div");
+  card.className = "plan-card";
+  const head = document.createElement("div");
+  const strong = document.createElement("strong");
+  strong.textContent = `${String(data.from || "?").toUpperCase()} → ${String(data.to || "?").toUpperCase()}`;
+  head.appendChild(strong);
+  card.appendChild(head);
+  if (data.path) {
+    const pathEl = document.createElement("div");
+    pathEl.className = "plan-path";
+    pathEl.textContent = data.path.split("/").slice(-2).join("/");
+    card.appendChild(pathEl);
+  }
+  const meta = document.createElement("div");
+  const bits = [
+    data.bpm != null ? `${Number(data.bpm).toFixed(1)} bpm` : null,
+    data.rate != null && data.rate !== 1 ? `rate ${((data.rate - 1) * 100).toFixed(1)}%` : null,
+    data.cue_sec != null ? `cue ${fmt(data.cue_sec)}` : null,
+    data.ramp_sec != null ? `ramp ${data.ramp_sec}s` : null,
+    data.remaining_sec != null ? `${data.remaining_sec}s left` : null,
+  ].filter(Boolean);
+  meta.textContent = bits.join(" · ");
+  card.appendChild(meta);
+  planBody.appendChild(card);
+}
+
+let focusedDeck: DeckName = "a";
+
+function isTypingTarget(el: EventTarget | null): boolean {
+  if (!(el instanceof HTMLElement)) return false;
+  const tag = el.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
+}
+
+window.addEventListener("keydown", (ev) => {
+  if (isTypingTarget(ev.target)) return;
+  const key = ev.key.toLowerCase();
+  if (key === "a") {
+    focusedDeck = "a";
+    flash("Focus: deck A");
+    return;
+  }
+  if (key === "b") {
+    focusedDeck = "b";
+    flash("Focus: deck B");
+    return;
+  }
+  if (key === " " || key === "enter") {
+    ev.preventDefault();
+    const playing = lastStatus?.decks[focusedDeck]?.playing;
+    void cmd(playing ? "deck.pause" : "deck.play", { deck: focusedDeck }).catch((e) => flash(String(e)));
+    return;
+  }
+  if (key === "arrowleft" || key === "arrowright") {
+    ev.preventDefault();
+    const cur = Number(crossfader.value);
+    const next = Math.max(0, Math.min(1, cur + (key === "arrowright" ? 0.05 : -0.05)));
+    crossfader.value = String(next);
+    crossfaderValue.textContent = next.toFixed(2);
+    void cmd("mixer.crossfade", { position: next }).catch((e) => flash(String(e)));
+    return;
+  }
+  if (key === "q") {
+    void cmd("deck.cue", { deck: focusedDeck }).catch((e) => flash(String(e)));
+  }
+});
 
 connectWs();
 void poll();
@@ -1089,7 +1228,7 @@ window.setInterval(() => void poll(), 500);
 void browseTo(browsePath).catch(() => undefined);
 void refreshRoon();
 window.setInterval(() => void refreshRoon(), 8000);
-log("dashboard ready");
+log("dashboard ready · keys: A/B focus · Space play · ←/→ crossfade · Q cue");
 
 /* ——— Dubstep studio ——— */
 const PADS = ["kick", "snare", "hat", "openhat", "clap", "rim", "bass", "riser", "impact", "sweep", "noise", "kick2"] as const;

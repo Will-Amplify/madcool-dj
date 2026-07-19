@@ -1,0 +1,25 @@
+# MadCool DJ — user systemd units (optional)
+# Install:
+#   mkdir -p ~/.config/systemd/user
+#   cp scripts/systemd/*.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now madcool-dj-engine.service madcool-dj-control.service
+#
+# Requires: engine venv, control node_modules, .env with DJ_TOKEN if non-loopback.
+
+[Unit]
+Description=MadCool DJ engine (PipeWire mix + protocol)
+After=pipewire.service pipewire-pulse.service
+Wants=pipewire.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Projects/madcool-dj/engine
+EnvironmentFile=-%h/Projects/madcool-dj/.env
+Environment=ENGINE_SOCK=%t/madcool-dj.sock
+ExecStart=%h/Projects/madcool-dj/engine/.venv/bin/python -m madcool_dj_engine --sock ${ENGINE_SOCK} --play
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

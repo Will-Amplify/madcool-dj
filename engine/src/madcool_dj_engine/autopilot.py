@@ -4,10 +4,9 @@
 `pick_next` is pure and synchronous — it's the part worth unit-testing hard.
 `Autopilot` is the gentle, mostly-mechanical wiring: poll roughly once a
 second from a daemon thread, and when the active deck's remaining time
-drops under `horizon_sec`, plan once, load the pick on the opposite deck,
-and ease the crossfade across. All the planning work (scoring, analysis)
-happens off the realtime audio callback — `tick()` never touches
-`mix_block`.
+drops under `horizon_sec`, plan once, load the pick on the opposite deck
+(beatmatched ±3%, intro cue), and ease the crossfade across. All the
+planning work (scoring, analysis) happens off the realtime audio callback.
 """
 
 from __future__ import annotations
@@ -15,12 +14,12 @@ from __future__ import annotations
 import logging
 import math
 import threading
-import time
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 from madcool_dj_engine.analyze import analyze_file
 from madcool_dj_engine.cache import load_analysis
+from madcool_dj_engine.cue import pick_intro_cue_sec, tempo_match_rate
 
 logger = logging.getLogger(__name__)
 
@@ -110,8 +109,8 @@ class Autopilot:
 
     TICK_INTERVAL_SEC = 1.0
     CROSSFADE_RAMP_SEC = 8.0
-    CROSSFADE_STEPS = 16
     RECENT_LIMIT = 20
+    TEMPO_CLAMP = 0.03  # ±3% pitch for beatmatch
 
     def __init__(self, handler: Any, broadcast: Callable[[str, dict], None], horizon_sec: float = 45.0):
         self.handler = handler
@@ -119,6 +118,7 @@ class Autopilot:
         self.horizon_sec = horizon_sec
         self.enabled = False
         self.recent: list[str] = []
+        self.last_plan: Optional[dict] = None
 
         self._planned_for: Optional[str] = None
         self._thread: Optional[threading.Thread] = None
@@ -137,10 +137,23 @@ class Autopilot:
     def disable(self) -> None:
         self.enabled = False
         self._stop.set()
+        self.notify_override(clear_plan=True)
         t = self._thread
         if t is not None and t.is_alive() and t is not threading.current_thread():
             t.join(timeout=2.0)
         self._thread = None
+
+    def notify_override(self, *, clear_plan: bool = True) -> None:
+        """Human/agent deck or mixer command — cancel pending crossfade ramp."""
+        try:
+            self.handler.mixer.cancel_crossfade_ramp()
+        except Exception:  # noqa: BLE001
+            pass
+        if clear_plan:
+            self._planned_for = None
+            if self.last_plan is not None:
+                self.broadcast("plan", {"cancelled": True, "previous": self.last_plan})
+                self.last_plan = None
 
     def _loop(self) -> None:
         me = threading.current_thread()
@@ -201,40 +214,30 @@ class Autopilot:
             if analysis is None:
                 continue
             candidates.append(
-                {"path": path, "bpm": analysis.get("bpm"), "bands": analysis.get("bands") or {}}
+                {
+                    "path": path,
+                    "bpm": analysis.get("bpm"),
+                    "bands": analysis.get("bands") or {},
+                    "_analysis": analysis,
+                }
             )
 
-        return pick_next(current, candidates, recent=self.recent)
+        picked = pick_next(current, candidates, recent=self.recent)
+        if picked is None:
+            return None
+        return {
+            **picked,
+            "current_bpm": current.get("bpm"),
+            "current_analysis": current_analysis,
+        }
 
     # -- transition ---------------------------------------------------------
-
-    def _start_crossfade_ramp(self, opposite_name: str) -> None:
-        """Snap to a 50/50 blend immediately (so the transition audibly
-        starts the moment the pick lands), then ease the rest of the way
-        toward the opposite deck over `CROSSFADE_RAMP_SEC` in a daemon
-        thread so `tick()` itself stays fast and off the audio callback.
-        """
-        mixer = self.handler.mixer
-        target = 1.0 if opposite_name == "b" else 0.0
-        mixer.set_crossfade(0.5)
-
-        step_sleep = self.CROSSFADE_RAMP_SEC / self.CROSSFADE_STEPS
-
-        def _ramp() -> None:
-            for i in range(1, self.CROSSFADE_STEPS + 1):
-                time.sleep(step_sleep)
-                value = 0.5 + (target - 0.5) * (i / self.CROSSFADE_STEPS)
-                mixer.set_crossfade(value)
-
-        threading.Thread(target=_ramp, daemon=True).start()
 
     def tick(self) -> None:
         """If enabled and the active deck's remaining time is under the
         horizon, plan once per playthrough: pick a candidate from the
-        library index + analysis cache, load/start it on the opposite deck,
-        and kick off the crossfade ramp. A no-op in every other case
-        (disabled, nothing playing, already planned for this track, or no
-        acceptable candidate).
+        library index + analysis cache, load/start it on the opposite deck
+        (tempo-matched, intro-cued), and kick off the crossfade ramp.
         """
         if not self.enabled:
             return
@@ -256,25 +259,49 @@ class Autopilot:
         plan = self._plan_next(active_path)
         self._planned_for = active_path  # one attempt per playthrough, hit or miss
         if plan is None:
+            self.broadcast(
+                "plan",
+                {
+                    "from": active_name,
+                    "to": opposite_name,
+                    "path": None,
+                    "remaining_sec": round(remaining, 2),
+                    "reason": "no_candidate",
+                },
+            )
             return
 
         next_path = plan["path"]
-        self.handler.mixer.load(opposite_name, Path(next_path))
-        self.handler.mixer.play(opposite_name)
+        next_analysis = plan.get("_analysis") or self._analysis_for(Path(next_path)) or {}
+        current_bpm = float(plan.get("current_bpm") or 0.0)
+        next_bpm = float(plan.get("bpm") or 0.0)
+        rate = tempo_match_rate(current_bpm, next_bpm, clamp=self.TEMPO_CLAMP)
+        cue_sec = pick_intro_cue_sec(next_analysis)
+
+        mixer = self.handler.mixer
+        mixer.load(opposite_name, Path(next_path), start_sec=cue_sec)
+        if hasattr(mixer, "set_rate"):
+            mixer.set_rate(opposite_name, rate)
+        mixer.play(opposite_name)
 
         self.recent.append(active_path)
         del self.recent[: -self.RECENT_LIMIT]
 
-        self._start_crossfade_ramp(opposite_name)
+        target = 1.0 if opposite_name == "b" else 0.0
+        # Snap to mid so the blend is audible immediately, then ease home.
+        mixer.set_crossfade(0.5)
+        mixer.ramp_crossfade(target, duration_sec=self.CROSSFADE_RAMP_SEC)
 
-        self.broadcast(
-            "plan",
-            {
-                "from": active_name,
-                "to": opposite_name,
-                "path": next_path,
-                "bpm": plan.get("bpm"),
-                "remaining_sec": round(remaining, 2),
-                "ramp_sec": self.CROSSFADE_RAMP_SEC,
-            },
-        )
+        payload = {
+            "from": active_name,
+            "to": opposite_name,
+            "path": next_path,
+            "bpm": next_bpm or None,
+            "current_bpm": current_bpm or None,
+            "rate": round(rate, 4),
+            "cue_sec": round(cue_sec, 3),
+            "remaining_sec": round(remaining, 2),
+            "ramp_sec": self.CROSSFADE_RAMP_SEC,
+        }
+        self.last_plan = payload
+        self.broadcast("plan", payload)

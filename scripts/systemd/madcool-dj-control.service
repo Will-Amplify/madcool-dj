@@ -1,0 +1,16 @@
+[Unit]
+Description=MadCool DJ control (HTTP/WS/MCP/Roon)
+After=madcool-dj-engine.service network-online.target
+Requires=madcool-dj-engine.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Projects/madcool-dj/control
+EnvironmentFile=-%h/Projects/madcool-dj/.env
+Environment=ENGINE_SOCK=%t/madcool-dj.sock
+ExecStart=%h/Projects/madcool-dj/control/node_modules/.bin/tsx src/index.ts
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

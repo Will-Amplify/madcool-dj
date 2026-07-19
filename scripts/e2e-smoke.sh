@@ -169,6 +169,12 @@ DECK_A_PLAYING="$(echo "$STATUS" | jq -r '.result.decks.a.playing // false')"
 AUTOPILOT_ON="$(echo "$STATUS" | jq -r '.result.autopilot // false')"
 
 echo
+echo "==> mixer.crossfade to B (2s ramp)"
+XFADE="$(cmd "mixer.crossfade" "{\"to\":\"b\",\"seconds\":2}")"
+echo "$XFADE"
+XFADE_OK="$(echo "$XFADE" | jq -r '.ok // false')"
+
+echo
 echo "==> library.browse (fixtures)"
 BROWSE="$(cmd "library.browse" "{\"path\":\"$ROOT/fixtures/clips\"}")"
 echo "$BROWSE"
@@ -190,7 +196,7 @@ echo
 echo "=== e2e-smoke summary ==="
 echo "health.ok=$HEALTH_OK  status.ok=$STATUS_OK  library.scan.count=$SCAN_COUNT"
 echo "deck.a.path=$DECK_A_PATH  deck.a.playing=$DECK_A_PLAYING  autopilot=$AUTOPILOT_ON"
-echo "browse.files=$BROWSE_FILES  studio.ok=$STUDIO_OK  music.ok=$MUSIC_OK"
+echo "browse.files=$BROWSE_FILES  studio.ok=$STUDIO_OK  music.ok=$MUSIC_OK  xfade.ok=$XFADE_OK"
 
 FAILS=0
 [[ "$HEALTH_OK" == "true" ]] || { echo "FAIL: health" >&2; FAILS=$((FAILS+1)); }
@@ -201,9 +207,10 @@ FAILS=0
 [[ "$AUTOPILOT_ON" == "true" ]] || { echo "FAIL: autopilot should be on" >&2; FAILS=$((FAILS+1)); }
 [[ "$BROWSE_FILES" -ge 2 ]] || { echo "FAIL: browse should list >= 2 files" >&2; FAILS=$((FAILS+1)); }
 [[ "$STUDIO_OK" == "true" ]] || { echo "FAIL: studio.status" >&2; FAILS=$((FAILS+1)); }
+[[ "$XFADE_OK" == "true" ]] || { echo "FAIL: mixer.crossfade to" >&2; FAILS=$((FAILS+1)); }
 
 if [[ "$FAILS" -eq 0 ]]; then
-  echo "PASS: protocol path + load/play/autopilot/browse/studio"
+  echo "PASS: protocol path + load/play/autopilot/browse/studio/xfade"
   exit 0
 else
   echo "FAIL: $FAILS assertion(s) failed" >&2

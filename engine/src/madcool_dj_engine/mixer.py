@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import math
+import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Tuple
@@ -46,6 +48,9 @@ class DeckState:
     title: str = ""
     # fractional position accumulator for non-integer rates
     _phase: float = 0.0
+    # one-pole EQ state: [lp, hp] per channel
+    _eq_lp: np.ndarray = field(default_factory=lambda: np.zeros(2, dtype=np.float64))
+    _eq_hp: np.ndarray = field(default_factory=lambda: np.zeros(2, dtype=np.float64))
 
 
 class DualDeckMixer:
@@ -59,6 +64,17 @@ class DualDeckMixer:
         self.crossfade = 0.0
         self.decks: dict[str, Optional[DeckState]] = {"a": None, "b": None}
         self.studio = StudioBus(sr)
+        self.last_levels: dict[str, float] = {
+            "peak_l": 0.0,
+            "peak_r": 0.0,
+            "deck_a": 0.0,
+            "deck_b": 0.0,
+        }
+        self._ramp_stop = threading.Event()
+        self._ramp_stop.set()  # no ramp active
+        # one-pole coeffs (~200 Hz / ~2 kHz at 44.1k)
+        self._eq_a_lp = math.exp(-2.0 * math.pi * 200.0 / sr)
+        self._eq_a_hp = math.exp(-2.0 * math.pi * 2000.0 / sr)
 
     def _deck(self, deck: str) -> Optional[DeckState]:
         if deck not in self.decks:
@@ -160,38 +176,69 @@ class DualDeckMixer:
     def set_crossfade(self, x: float) -> None:
         self.crossfade = _clamp(float(x), 0.0, 1.0)
 
+    def cancel_crossfade_ramp(self) -> None:
+        self._ramp_stop.set()
+
+    def ramp_crossfade(self, target: float, duration_sec: float = 4.0, steps: int = 24) -> None:
+        """Ease crossfade toward `target` off the audio callback. Cancels any prior ramp."""
+        target = _clamp(float(target), 0.0, 1.0)
+        duration_sec = max(0.05, float(duration_sec))
+        steps = max(2, int(steps))
+        self._ramp_stop.set()
+        stop = threading.Event()
+        self._ramp_stop = stop
+        start = self.crossfade
+        step_sleep = duration_sec / steps
+
+        def _ramp() -> None:
+            for i in range(1, steps + 1):
+                if stop.is_set():
+                    return
+                time.sleep(step_sleep)
+                if stop.is_set():
+                    return
+                self.set_crossfade(start + (target - start) * (i / steps))
+
+        threading.Thread(target=_ramp, daemon=True, name="xfade-ramp").start()
+
     def duration_sec(self, deck: str) -> float:
         state = self._deck(deck)
         if state is None:
             return 0.0
         return len(state.audio) / float(self.sr)
 
-    def _apply_eq(self, block: np.ndarray, eq: DeckEQ) -> np.ndarray:
-        """Crude 3-band EQ via moving-average split — cheap, not mastering-grade."""
+    def _apply_eq(self, block: np.ndarray, state: DeckState) -> np.ndarray:
+        """Stateful one-pole 3-band split via lfilter — flat EQ is a no-op."""
+        from scipy.signal import lfilter
+
+        eq = state.eq
         if eq.low == 1.0 and eq.mid == 1.0 and eq.high == 1.0:
             return block
-        # ~200Hz / ~2kHz crossover at 44.1k with short MA windows
-        k_low = 64
-        k_high = 8
-        low = np.zeros_like(block)
+        x = np.asarray(block, dtype=np.float64)
+        a_lp = self._eq_a_lp
+        a_hp = self._eq_a_hp
+        b_lp = np.array([1.0 - a_lp])
+        a_lp_c = np.array([1.0, -a_lp])
+        b_hp = np.array([1.0 - a_hp])
+        a_hp_c = np.array([1.0, -a_hp])
+        out = np.empty_like(x)
         for ch in range(2):
-            kernel = np.ones(k_low, dtype=np.float32) / k_low
-            low[:, ch] = np.convolve(block[:, ch], kernel, mode="same")
-        residual = block - low
-        high = np.zeros_like(block)
-        for ch in range(2):
-            kernel = np.ones(k_high, dtype=np.float32) / float(k_high)
-            # high ≈ residual - smoothed residual
-            smooth = np.convolve(residual[:, ch], kernel, mode="same")
-            high[:, ch] = residual[:, ch] - smooth
-        mid = residual - high
-        return (low * eq.low + mid * eq.mid + high * eq.high).astype(np.float32)
+            low, z_lp = lfilter(b_lp, a_lp_c, x[:, ch], zi=[state._eq_lp[ch]])
+            residual = x[:, ch] - low
+            smooth, z_hp = lfilter(b_hp, a_hp_c, residual, zi=[state._eq_hp[ch]])
+            high = residual - smooth
+            mid = residual - high
+            out[:, ch] = low * eq.low + mid * eq.mid + high * eq.high
+            state._eq_lp[ch] = float(z_lp[0])
+            state._eq_hp[ch] = float(z_hp[0])
+        return out.astype(np.float32)
 
     def mix_block(self, n_frames: int) -> np.ndarray:
         """Return (n_frames, 2) float32. Advance playing decks. Silence if empty."""
         out = np.zeros((n_frames, 2), dtype=np.float32)
         gain_a, gain_b = equal_power_gains(self.crossfade)
         deck_gains = {"a": gain_a, "b": gain_b}
+        deck_peaks = {"a": 0.0, "b": 0.0}
 
         for name, state in self.decks.items():
             if state is None or not state.playing:
@@ -210,8 +257,10 @@ class DualDeckMixer:
                     state._phase -= step
 
             if wrote > 0:
-                block = self._apply_eq(gathered[:wrote], state.eq)
-                out[:wrote] += block * (deck_gains[name] * state.gain)
+                block = self._apply_eq(gathered[:wrote], state)
+                scaled = block * (deck_gains[name] * state.gain)
+                out[:wrote] += scaled
+                deck_peaks[name] = float(np.max(np.abs(scaled))) if scaled.size else 0.0
 
             if state.position >= len(state.audio):
                 state.playing = False
@@ -220,4 +269,11 @@ class DualDeckMixer:
         # Studio bus (sampler + synth + seq) summed pre-FX, then master FX
         out += self.studio.render(n_frames)
         out = self.studio.fx.process(out)
-        return np.tanh(out).astype(np.float32)
+        out = np.tanh(out).astype(np.float32)
+        self.last_levels = {
+            "peak_l": float(np.max(np.abs(out[:, 0]))) if len(out) else 0.0,
+            "peak_r": float(np.max(np.abs(out[:, 1]))) if len(out) else 0.0,
+            "deck_a": deck_peaks["a"],
+            "deck_b": deck_peaks["b"],
+        }
+        return out
