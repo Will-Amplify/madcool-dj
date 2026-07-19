@@ -14,7 +14,18 @@ cp .env.example .env
 ./scripts/dev.sh
 ```
 
-`dev.sh` is a stub until engine+control wiring lands (Task 13).
+`dev.sh` builds the dashboard if needed, starts the engine (`--play` when PortAudio/sounddevice is available, protocol-only otherwise), waits for its socket, then runs `dj-control` in the foreground. Ctrl-C tears both down.
+
+## e2e smoke
+
+`./scripts/e2e-smoke.sh` boots its own isolated engine + control pair (own socket at `/tmp/madcool-e2e.sock`, own port at `:8799` by default — never touches whatever `dev.sh` has running) and drives the full protocol path over the HTTP command bus: `health` → `library.scan` (fixtures) → `analyze.file` on both clips → `deck.load` a/b → `deck.play a` → `autopilot.enable` → `status`. It tears both processes down on exit (success, failure, or Ctrl-C) and dumps their logs if anything failed.
+
+```bash
+./scripts/make-fixtures.sh   # once, if fixtures/clips is empty
+./scripts/e2e-smoke.sh
+```
+
+Exits `0` when `health` and `status` both report `ok: true` (the protocol path — no PortAudio/hardware required). Override `ENGINE_SOCK`, `DJ_HOST`, or `DJ_PORT` env vars if `:8799` or the default socket path is taken.
 
 ## Tailscale bind
 
