@@ -44,6 +44,31 @@ For dashboard-only iteration, `cd dashboard && npm run dev` runs Vite on `:5173`
 
 If `DJ_TOKEN` is set, paste it into the dashboard's **token** field (top right) — it's sent as `Authorization: Bearer` on REST calls and as `?token=` on the WebSocket, since browsers can't set custom headers on `new WebSocket(...)`.
 
+## MCP
+
+`control/src/mcp-stdio.ts` exposes the same command bus (`control/src/bus.ts`) as a set of MCP tools (`dj_status`, `dj_deck_load`, `dj_deck_play`/`dj_deck_pause`, `dj_mixer_crossfade`, `dj_autopilot_enable`/`dj_autopilot_disable`, `dj_fx_set`, `dj_library_scan`/`dj_library_list`, `dj_analyze_file`, `dj_device_claim`, `dj_roon_zones`/`dj_roon_control`) — no separate HTTP server, just stdio framing for an MCP client.
+
+It needs a running engine: set `ENGINE_SOCK` (or `XDG_RUNTIME_DIR`, which the default falls back to) before launching, same as `dj-control`. If the engine isn't up yet, the process still starts and connects the MCP transport — it just logs `engine socket error` / `engine disconnected, will reconnect` to stderr and retries with backoff instead of crashing.
+
+Add to Cursor's MCP config (`~/.cursor/mcp.json` or the project-local equivalent):
+
+```json
+{
+  "mcpServers": {
+    "madcool-dj": {
+      "command": "npx",
+      "args": ["tsx", "/home/madcoolseed/Projects/madcool-dj/.worktrees/madcool-dj-impl/control/src/mcp-stdio.ts"],
+      "cwd": "/home/madcoolseed/Projects/madcool-dj/.worktrees/madcool-dj-impl/control",
+      "env": {
+        "ENGINE_SOCK": "/run/user/1000/madcool-dj.sock"
+      }
+    }
+  }
+}
+```
+
+`cwd` matters here: it's what makes `npx` find the already-installed `tsx` (and the SDK) in `control/node_modules` instead of trying to hit the registry. Adjust `ENGINE_SOCK` to match wherever the engine actually binds its socket (`echo $XDG_RUNTIME_DIR/madcool-dj.sock` on the host running the engine).
+
 ## Listen smoke
 
 Manual check that the mixer actually reaches the SXW DAC on tom-1 (no automated hardware test — `test_mixer_block.py` covers the math without a sound card):
