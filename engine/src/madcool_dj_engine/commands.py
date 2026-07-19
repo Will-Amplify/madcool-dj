@@ -1,9 +1,5 @@
 """Command dispatch: routes protocol requests onto a `DualDeckMixer`, the
 analyzer, the autopilot planner, and a simple in-memory library index.
-
-`fx.set` is still a noop store — real DSP wiring comes later, but the
-command surface is stable so control/dashboard/MCP can be built against it
-today.
 """
 
 from __future__ import annotations
@@ -20,28 +16,15 @@ from madcool_dj_engine.cache import load_analysis
 from madcool_dj_engine.library import scan_dir
 from madcool_dj_engine.mixer import DualDeckMixer
 
-# engine/src/madcool_dj_engine/commands.py -> repo root
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_LIBRARY_ROOT = _REPO_ROOT / "fixtures" / "clips"
 
 
 class CommandError(Exception):
-    """Expected command failure (bad params, unsupported command, ...).
-
-    Distinct from unexpected exceptions only for readability at call sites —
-    the protocol server turns any raised exception into `{"ok": false}`.
-    """
+    """Expected command failure (bad params, unsupported command, ...)."""
 
 
 class EngineCommandHandler:
-    """Holds engine-side state (mixer, library index, autopilot flag, fx) and
-    dispatches named commands onto it.
-
-    Not thread-safe on its own — `protocol.EngineProtocolServer` serializes
-    calls to `dispatch` with a single lock, so one handler instance is safe
-    to share across concurrent client connections.
-    """
-
     def __init__(self, mixer: Optional[DualDeckMixer] = None, broadcast: Optional[Callable[[str, dict], None]] = None):
         self.mixer = mixer if mixer is not None else DualDeckMixer()
         self.broadcast = broadcast or (lambda event, data: None)
@@ -55,6 +38,14 @@ class EngineCommandHandler:
             "deck.load": self._deck_load,
             "deck.play": self._deck_play,
             "deck.pause": self._deck_pause,
+            "deck.seek": self._deck_seek,
+            "deck.jog": self._deck_jog,
+            "deck.cue": self._deck_cue,
+            "deck.setCue": self._deck_set_cue,
+            "deck.setRate": self._deck_set_rate,
+            "deck.nudgeRate": self._deck_nudge_rate,
+            "deck.setGain": self._deck_set_gain,
+            "deck.setEq": self._deck_set_eq,
             "mixer.crossfade": self._mixer_crossfade,
             "analyze.file": self._analyze_file,
             "library.scan": self._library_scan,
@@ -73,21 +64,34 @@ class EngineCommandHandler:
         return handler(params or {})
 
     def _emit(self, event: str, data: dict) -> None:
-        """Autopilot's broadcast callback — indirects through `self.broadcast`
-        so it stays current even if the protocol server is wired up after
-        this handler (and its `Autopilot`) is constructed."""
         self.broadcast(event, data)
-
-    # -- status ---------------------------------------------------------
 
     def _deck_summary(self, name: str) -> dict:
         state = self.mixer.decks.get(name)
         if state is None:
-            return {"path": None, "playing": False, "position_sec": 0.0}
+            return {
+                "path": None,
+                "playing": False,
+                "position_sec": 0.0,
+                "duration_sec": 0.0,
+                "cue_sec": 0.0,
+                "rate": 1.0,
+                "gain": 1.0,
+                "eq": {"low": 1.0, "mid": 1.0, "high": 1.0},
+                "source": "local",
+                "title": None,
+            }
         return {
             "path": str(state.path),
             "playing": state.playing,
             "position_sec": round(state.position / float(self.mixer.sr), 3),
+            "duration_sec": round(len(state.audio) / float(self.mixer.sr), 3),
+            "cue_sec": round(state.cue_frame / float(self.mixer.sr), 3),
+            "rate": round(state.rate, 4),
+            "gain": round(state.gain, 3),
+            "eq": {"low": state.eq.low, "mid": state.eq.mid, "high": state.eq.high},
+            "source": state.source,
+            "title": state.title,
         }
 
     def _status(self, params: dict) -> dict:
@@ -97,15 +101,12 @@ class EngineCommandHandler:
             "crossfade": self.mixer.crossfade,
             "decks": {"a": self._deck_summary("a"), "b": self._deck_summary("b")},
             "autopilot": self.autopilot.enabled,
+            "fx": dict(self.fx_state),
         }
-
-    # -- device -----------------------------------------------------------
 
     def _device_claim(self, params: dict) -> dict:
         claim_default_sink()
         return {"claimed": True}
-
-    # -- deck / mixer transport -----------------------------------------
 
     @staticmethod
     def _require_deck(params: dict) -> str:
@@ -120,17 +121,105 @@ class EngineCommandHandler:
         if not path:
             raise CommandError("missing_path")
         start_sec = float(params.get("startSec") or 0.0)
-        self.mixer.load(deck, Path(path), start_sec=start_sec)
+        source = str(params.get("source") or "local")
+        title = str(params.get("title") or "")
+        try:
+            self.mixer.load(deck, Path(path), start_sec=start_sec, source=source, title=title)
+        except Exception as exc:
+            raise CommandError(f"deck_load_failed: {exc}") from exc
         return self._deck_summary(deck)
 
     def _deck_play(self, params: dict) -> dict:
         deck = self._require_deck(params)
-        self.mixer.play(deck)
+        try:
+            self.mixer.play(deck)
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
         return self._deck_summary(deck)
 
     def _deck_pause(self, params: dict) -> dict:
         deck = self._require_deck(params)
         self.mixer.pause(deck)
+        return self._deck_summary(deck)
+
+    def _deck_seek(self, params: dict) -> dict:
+        deck = self._require_deck(params)
+        if "positionSec" not in params:
+            raise CommandError("missing_positionSec")
+        try:
+            self.mixer.seek(deck, float(params["positionSec"]))
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
+        return self._deck_summary(deck)
+
+    def _deck_jog(self, params: dict) -> dict:
+        deck = self._require_deck(params)
+        if "deltaSec" not in params:
+            raise CommandError("missing_deltaSec")
+        try:
+            self.mixer.jog(deck, float(params["deltaSec"]))
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
+        return self._deck_summary(deck)
+
+    def _deck_cue(self, params: dict) -> dict:
+        deck = self._require_deck(params)
+        try:
+            self.mixer.cue(deck)
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
+        return self._deck_summary(deck)
+
+    def _deck_set_cue(self, params: dict) -> dict:
+        deck = self._require_deck(params)
+        pos = params.get("positionSec")
+        try:
+            self.mixer.set_cue(deck, float(pos) if pos is not None else None)
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
+        return self._deck_summary(deck)
+
+    def _deck_set_rate(self, params: dict) -> dict:
+        deck = self._require_deck(params)
+        if "rate" not in params:
+            raise CommandError("missing_rate")
+        try:
+            self.mixer.set_rate(deck, float(params["rate"]))
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
+        return self._deck_summary(deck)
+
+    def _deck_nudge_rate(self, params: dict) -> dict:
+        deck = self._require_deck(params)
+        if "delta" not in params:
+            raise CommandError("missing_delta")
+        try:
+            self.mixer.nudge_rate(deck, float(params["delta"]))
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
+        return self._deck_summary(deck)
+
+    def _deck_set_gain(self, params: dict) -> dict:
+        deck = self._require_deck(params)
+        if "gain" not in params:
+            raise CommandError("missing_gain")
+        try:
+            self.mixer.set_gain(deck, float(params["gain"]))
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
+        return self._deck_summary(deck)
+
+    def _deck_set_eq(self, params: dict) -> dict:
+        deck = self._require_deck(params)
+        try:
+            self.mixer.set_eq(
+                deck,
+                low=float(params["low"]) if "low" in params else None,
+                mid=float(params["mid"]) if "mid" in params else None,
+                high=float(params["high"]) if "high" in params else None,
+            )
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
         return self._deck_summary(deck)
 
     def _mixer_crossfade(self, params: dict) -> dict:
@@ -139,8 +228,6 @@ class EngineCommandHandler:
             raise CommandError("missing_position")
         self.mixer.set_crossfade(float(position))
         return {"crossfade": self.mixer.crossfade}
-
-    # -- analysis / library -----------------------------------------------
 
     def _analyze_file(self, params: dict) -> dict:
         path = params.get("path")
@@ -151,12 +238,12 @@ class EngineCommandHandler:
             "bpm": result.get("bpm"),
             "duration_sec": result.get("duration_sec"),
             "bands": result.get("bands"),
+            "energy": result.get("energy"),
         }
 
     def _library_scan(self, params: dict) -> dict:
         root = params.get("root") or os.environ.get("MUSIC_ROOT") or DEFAULT_LIBRARY_ROOT
         root_path = Path(root)
-
         self.library_index = [{"path": p} for p in scan_dir(root_path)]
         return {"root": str(root_path), "count": len(self.library_index)}
 
@@ -164,18 +251,17 @@ class EngineCommandHandler:
         tracks = []
         for entry in self.library_index:
             path = Path(entry["path"])
-            item: dict[str, Any] = {"path": entry["path"]}
+            item: dict[str, Any] = {"path": entry["path"], "title": path.stem}
             cached = load_analysis(path) if path.exists() else None
             if cached:
                 item["analysis"] = {
                     "bpm": cached.get("bpm"),
                     "duration_sec": cached.get("duration_sec"),
                     "bands": cached.get("bands"),
+                    "energy": cached.get("energy"),
                 }
             tracks.append(item)
         return {"tracks": tracks}
-
-    # -- autopilot / fx -----------------------------------------------------
 
     def _autopilot_enable(self, params: dict) -> dict:
         self.autopilot.enable()

@@ -79,6 +79,89 @@ export function createMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "dj_deck_seek",
+    {
+      description: "Seek a deck to an absolute position in seconds.",
+      inputSchema: {
+        deck: deckSchema,
+        positionSec: z.number().nonnegative(),
+      },
+    },
+    async (args) => run("deck.seek", args),
+  );
+
+  server.registerTool(
+    "dj_deck_jog",
+    {
+      description: "Nudge / scrub a deck by a relative delta in seconds (jog wheel).",
+      inputSchema: {
+        deck: deckSchema,
+        deltaSec: z.number(),
+      },
+    },
+    async (args) => run("deck.jog", args),
+  );
+
+  server.registerTool(
+    "dj_deck_cue",
+    {
+      description: "Jump to the deck cue point and pause (back-cue).",
+      inputSchema: { deck: deckSchema },
+    },
+    async (args) => run("deck.cue", args),
+  );
+
+  server.registerTool(
+    "dj_deck_set_cue",
+    {
+      description: "Set the deck cue point to the current position (or an absolute positionSec).",
+      inputSchema: {
+        deck: deckSchema,
+        positionSec: z.number().nonnegative().optional(),
+      },
+    },
+    async (args) => run("deck.setCue", args),
+  );
+
+  server.registerTool(
+    "dj_deck_set_rate",
+    {
+      description: "Set playback rate (0.92–1.08). Sample skip/hold — no heavy timestretch.",
+      inputSchema: {
+        deck: deckSchema,
+        rate: z.number().min(0.92).max(1.08),
+      },
+    },
+    async (args) => run("deck.setRate", args),
+  );
+
+  server.registerTool(
+    "dj_deck_set_eq",
+    {
+      description: "Set deck EQ gains (linear; 1.0 = flat).",
+      inputSchema: {
+        deck: deckSchema,
+        low: z.number().min(0).max(2).optional(),
+        mid: z.number().min(0).max(2).optional(),
+        high: z.number().min(0).max(2).optional(),
+      },
+    },
+    async (args) => run("deck.setEq", args),
+  );
+
+  server.registerTool(
+    "dj_deck_set_gain",
+    {
+      description: "Set deck channel gain (0–2).",
+      inputSchema: {
+        deck: deckSchema,
+        gain: z.number().min(0).max(2),
+      },
+    },
+    async (args) => run("deck.setGain", args),
+  );
+
+  server.registerTool(
     "dj_mixer_crossfade",
     {
       description: "Set the crossfader position (0 = deck A, 1 = deck B).",
@@ -157,6 +240,15 @@ export function createMcpServer(): McpServer {
       },
     },
     async (args) => run("roon.control", args),
+  );
+
+  server.registerTool(
+    "dj_sources_search",
+    {
+      description: "Search local library (+ stub Spotify/Tidal). Roon zones are separate via dj_roon_zones.",
+      inputSchema: { q: z.string().describe("Search query") },
+    },
+    async (args) => run("sources.search", args),
   );
 
   return server;

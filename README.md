@@ -59,19 +59,22 @@ Run `./scripts/make-fixtures.sh` to slice ~90s WAV clips from source mixes under
 
 ## Dashboard
 
-`dashboard/` is a small Vite + vanilla TypeScript control surface: dual decks (title, playing state, position, BPM when cached analysis exists), 5-band meters, a crossfader, an upcoming-plan card, and an agent/activity log fed by every `/v1/live` WebSocket event. Dark charcoal surface, teal live accents — no purple-gradient chrome.
+`dashboard/` is a Serato/Traktor-inspired dual-deck surface:
 
-Build it once and `dj-control` serves it automatically:
+- Per deck: **play/pause**, **CUE / SET CUE**, **jog wheel** + ± buttons, **scrub/waveform**, **pitch** (±8%), **HI/MID/LOW EQ**, **gain**, **source selector** (Local / Roon / Spotify† / Tidal†)
+- Center: crossfader, autopilot, claim DAC, load fixtures
+- Top: local library browser + **Roon zones on Simon** (play/pause/next)
+- Live WS activity log + upcoming autopilot plan
+
+Dark charcoal + teal. Mix bus is always local PipeWire; Roon is a co-pilot for zone transport (no Spotify/Tidal PCM yet — stubs).
 
 ```bash
 cd dashboard && npm i && npm run build
+./scripts/dev.sh
+# open http://127.0.0.1:8787/
 ```
 
-`control/src/routes.ts` serves `dashboard/dist` as static files whenever that directory exists (Hono `serveStatic`), so once built, the dashboard is just `http://<control-host>:8787/`. Nothing changes on the control side if you skip the build — the route is a no-op until `dashboard/dist` shows up.
-
-For dashboard-only iteration, `cd dashboard && npm run dev` runs Vite on `:5173` and proxies `/v1/*` (HTTP + WebSocket) to `dj-control` on `:8787`. The dashboard always opens its live WebSocket directly at `ws://<page-host>:8787/v1/live`.
-
-If `DJ_TOKEN` is set, paste it into the dashboard's **token** field (top right) — it's sent as `Authorization: Bearer` on REST calls and as `?token=` on the WebSocket, since browsers can't set custom headers on `new WebSocket(...)`.
+Right-click a library track to toggle load target A↔B.
 
 ## MCP
 
@@ -86,8 +89,8 @@ Add to Cursor's MCP config (`~/.cursor/mcp.json` or the project-local equivalent
   "mcpServers": {
     "madcool-dj": {
       "command": "npx",
-      "args": ["tsx", "/home/madcoolseed/Projects/madcool-dj/.worktrees/madcool-dj-impl/control/src/mcp-stdio.ts"],
-      "cwd": "/home/madcoolseed/Projects/madcool-dj/.worktrees/madcool-dj-impl/control",
+      "args": ["tsx", "/home/madcoolseed/Projects/madcool-dj/control/src/mcp-stdio.ts"],
+      "cwd": "/home/madcoolseed/Projects/madcool-dj/control",
       "env": {
         "ENGINE_SOCK": "/run/user/1000/madcool-dj.sock"
       }

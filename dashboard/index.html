@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MadCool DJ — control surface</title>
+    <title>MadCool DJ</title>
   </head>
   <body>
     <div class="app">
@@ -20,99 +20,182 @@
             </label>
             <div id="conn-badge" class="badge badge--off">
               <span class="dot"></span>
-              <span class="badge-label">control&nbsp;ws</span>
+              <span class="badge-label">ws</span>
+            </div>
+            <div id="roon-badge" class="badge badge--off">
+              <span class="dot"></span>
+              <span class="badge-label">roon</span>
             </div>
           </div>
         </div>
-        <p class="hero-tagline">Dual-deck autopilot for the endless search for perfect signal.</p>
+        <p class="hero-tagline">Signal over noise. Two decks. One box.</p>
       </header>
 
-      <section class="transport" aria-label="Transport controls">
-        <button id="btn-load-fixtures" class="btn">Load fixtures</button>
-        <button id="btn-play-a" class="btn">Play&nbsp;A</button>
-        <button id="btn-play-b" class="btn">Play&nbsp;B</button>
-        <button id="btn-autopilot" class="btn btn--toggle">Enable autopilot</button>
-        <button id="btn-claim" class="btn">Claim device</button>
-        <span id="transport-status" class="transport-status"></span>
+      <section class="browser-row" aria-label="Library and Roon">
+        <article class="panel browser">
+          <header class="panel-head">
+            <h2>Library</h2>
+            <div class="panel-actions">
+              <button id="btn-scan" class="btn btn--small" type="button">Scan</button>
+              <input id="lib-search" type="search" placeholder="Filter…" />
+            </div>
+          </header>
+          <ul id="lib-list" class="track-list"></ul>
+        </article>
+        <article class="panel roon-panel">
+          <header class="panel-head">
+            <h2>Roon · Simon</h2>
+            <button id="btn-roon-refresh" class="btn btn--small" type="button">Refresh</button>
+          </header>
+          <ul id="roon-list" class="zone-list"></ul>
+          <p id="roon-hint" class="hint">Zones load when the extension is paired.</p>
+        </article>
       </section>
 
       <section class="deck-rig" aria-label="Decks and mixer">
+        <!-- Deck A -->
         <article class="deck" id="deck-a" data-deck="a">
           <header class="deck-head">
             <span class="deck-tag">A</span>
+            <select id="deck-a-source" class="source-select" aria-label="Deck A source">
+              <option value="local">Local</option>
+              <option value="roon">Roon (zone)</option>
+              <option value="spotify" disabled>Spotify †</option>
+              <option value="tidal" disabled>Tidal †</option>
+            </select>
             <span class="deck-state" id="deck-a-state">idle</span>
           </header>
-          <p class="deck-path" id="deck-a-path">no track loaded</p>
-          <div class="deck-meta">
-            <div class="meta-item">
-              <span class="meta-label">bpm</span>
-              <span class="meta-value" id="deck-a-bpm">&mdash;</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">position</span>
-              <span class="meta-value" id="deck-a-pos">0:00</span>
-            </div>
+          <p class="deck-title" id="deck-a-title">no track</p>
+          <p class="deck-path" id="deck-a-path"></p>
+          <div class="waveform" id="deck-a-wave" title="Click to scrub">
+            <canvas id="deck-a-canvas" width="480" height="56"></canvas>
+            <div class="playhead" id="deck-a-playhead"></div>
           </div>
-          <div class="bands" id="deck-a-bands" aria-label="Deck A band energy"></div>
+          <div class="scrub-row">
+            <input id="deck-a-scrub" type="range" min="0" max="1000" value="0" aria-label="Deck A scrub" />
+            <span class="meta-value" id="deck-a-pos">0:00</span>
+            <span class="meta-muted">/</span>
+            <span class="meta-value" id="deck-a-dur">0:00</span>
+          </div>
+          <div class="jog-row">
+            <button type="button" class="btn btn--jog" data-deck="a" data-jog="-1">−1s</button>
+            <button type="button" class="btn btn--jog" data-deck="a" data-jog="-0.05">−</button>
+            <div class="jog-wheel" id="jog-a" data-deck="a" title="Drag to jog">JOG</div>
+            <button type="button" class="btn btn--jog" data-deck="a" data-jog="0.05">+</button>
+            <button type="button" class="btn btn--jog" data-deck="a" data-jog="1">+1s</button>
+          </div>
+          <div class="transport-row">
+            <button type="button" class="btn btn--cue" id="deck-a-cue">CUE</button>
+            <button type="button" class="btn btn--play" id="deck-a-play">▶</button>
+            <button type="button" class="btn" id="deck-a-setcue">SET CUE</button>
+          </div>
+          <div class="pitch-row">
+            <span class="meta-label">pitch</span>
+            <button type="button" class="btn btn--small" data-rate-deck="a" data-rate-delta="-0.01">−</button>
+            <input id="deck-a-rate" type="range" min="0.92" max="1.08" step="0.001" value="1" />
+            <button type="button" class="btn btn--small" data-rate-deck="a" data-rate-delta="0.01">+</button>
+            <span class="meta-value" id="deck-a-rate-val">0.0%</span>
+          </div>
+          <div class="eq-row">
+            <label>HI <input id="deck-a-eq-high" type="range" min="0" max="2" step="0.01" value="1" /></label>
+            <label>MID <input id="deck-a-eq-mid" type="range" min="0" max="2" step="0.01" value="1" /></label>
+            <label>LOW <input id="deck-a-eq-low" type="range" min="0" max="2" step="0.01" value="1" /></label>
+            <label>GAIN <input id="deck-a-gain" type="range" min="0" max="2" step="0.01" value="1" /></label>
+          </div>
+          <div class="deck-meta">
+            <div class="meta-item"><span class="meta-label">bpm</span><span class="meta-value" id="deck-a-bpm">—</span></div>
+            <div class="meta-item"><span class="meta-label">cue</span><span class="meta-value" id="deck-a-cuepos">0:00</span></div>
+          </div>
+          <div class="bands" id="deck-a-bands"></div>
         </article>
 
+        <!-- Mixer -->
         <div class="mixer-core">
           <div class="crossfader-block">
-            <div class="crossfader-labels">
-              <span>A</span>
-              <span>B</span>
-            </div>
-            <input id="crossfader" type="range" min="0" max="1" step="0.01" value="0.5" aria-label="Crossfader" />
-            <div class="crossfader-value" id="crossfader-value">0.50</div>
+            <div class="crossfader-labels"><span>A</span><span>B</span></div>
+            <input id="crossfader" type="range" min="0" max="1" step="0.01" value="0" aria-label="Crossfader" />
+            <div class="crossfader-value" id="crossfader-value">0.00</div>
           </div>
+          <button id="btn-autopilot" class="btn btn--toggle" type="button">Autopilot</button>
+          <button id="btn-claim" class="btn" type="button">Claim DAC</button>
+          <button id="btn-load-fixtures" class="btn" type="button">Load fixtures</button>
           <div class="mixer-status">
-            <div class="meta-item">
-              <span class="meta-label">autopilot</span>
-              <span class="meta-value" id="autopilot-state">off</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">engine</span>
-              <span class="meta-value" id="engine-version">&mdash;</span>
-            </div>
+            <div class="meta-item"><span class="meta-label">autopilot</span><span class="meta-value" id="autopilot-state">off</span></div>
+            <div class="meta-item"><span class="meta-label">engine</span><span class="meta-value" id="engine-version">—</span></div>
           </div>
+          <span id="transport-status" class="transport-status"></span>
         </div>
 
+        <!-- Deck B -->
         <article class="deck" id="deck-b" data-deck="b">
           <header class="deck-head">
             <span class="deck-tag">B</span>
+            <select id="deck-b-source" class="source-select" aria-label="Deck B source">
+              <option value="local">Local</option>
+              <option value="roon">Roon (zone)</option>
+              <option value="spotify" disabled>Spotify †</option>
+              <option value="tidal" disabled>Tidal †</option>
+            </select>
             <span class="deck-state" id="deck-b-state">idle</span>
           </header>
-          <p class="deck-path" id="deck-b-path">no track loaded</p>
-          <div class="deck-meta">
-            <div class="meta-item">
-              <span class="meta-label">bpm</span>
-              <span class="meta-value" id="deck-b-bpm">&mdash;</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">position</span>
-              <span class="meta-value" id="deck-b-pos">0:00</span>
-            </div>
+          <p class="deck-title" id="deck-b-title">no track</p>
+          <p class="deck-path" id="deck-b-path"></p>
+          <div class="waveform" id="deck-b-wave" title="Click to scrub">
+            <canvas id="deck-b-canvas" width="480" height="56"></canvas>
+            <div class="playhead" id="deck-b-playhead"></div>
           </div>
-          <div class="bands" id="deck-b-bands" aria-label="Deck B band energy"></div>
+          <div class="scrub-row">
+            <input id="deck-b-scrub" type="range" min="0" max="1000" value="0" aria-label="Deck B scrub" />
+            <span class="meta-value" id="deck-b-pos">0:00</span>
+            <span class="meta-muted">/</span>
+            <span class="meta-value" id="deck-b-dur">0:00</span>
+          </div>
+          <div class="jog-row">
+            <button type="button" class="btn btn--jog" data-deck="b" data-jog="-1">−1s</button>
+            <button type="button" class="btn btn--jog" data-deck="b" data-jog="-0.05">−</button>
+            <div class="jog-wheel" id="jog-b" data-deck="b" title="Drag to jog">JOG</div>
+            <button type="button" class="btn btn--jog" data-deck="b" data-jog="0.05">+</button>
+            <button type="button" class="btn btn--jog" data-deck="b" data-jog="1">+1s</button>
+          </div>
+          <div class="transport-row">
+            <button type="button" class="btn btn--cue" id="deck-b-cue">CUE</button>
+            <button type="button" class="btn btn--play" id="deck-b-play">▶</button>
+            <button type="button" class="btn" id="deck-b-setcue">SET CUE</button>
+          </div>
+          <div class="pitch-row">
+            <span class="meta-label">pitch</span>
+            <button type="button" class="btn btn--small" data-rate-deck="b" data-rate-delta="-0.01">−</button>
+            <input id="deck-b-rate" type="range" min="0.92" max="1.08" step="0.001" value="1" />
+            <button type="button" class="btn btn--small" data-rate-deck="b" data-rate-delta="0.01">+</button>
+            <span class="meta-value" id="deck-b-rate-val">0.0%</span>
+          </div>
+          <div class="eq-row">
+            <label>HI <input id="deck-b-eq-high" type="range" min="0" max="2" step="0.01" value="1" /></label>
+            <label>MID <input id="deck-b-eq-mid" type="range" min="0" max="2" step="0.01" value="1" /></label>
+            <label>LOW <input id="deck-b-eq-low" type="range" min="0" max="2" step="0.01" value="1" /></label>
+            <label>GAIN <input id="deck-b-gain" type="range" min="0" max="2" step="0.01" value="1" /></label>
+          </div>
+          <div class="deck-meta">
+            <div class="meta-item"><span class="meta-label">bpm</span><span class="meta-value" id="deck-b-bpm">—</span></div>
+            <div class="meta-item"><span class="meta-label">cue</span><span class="meta-value" id="deck-b-cuepos">0:00</span></div>
+          </div>
+          <div class="bands" id="deck-b-bands"></div>
         </article>
       </section>
 
       <section class="lower-grid">
         <article class="panel plan-card">
           <h2>Upcoming plan</h2>
-          <div id="plan-body" class="plan-body">
-            <p class="plan-empty">No transition planned yet.</p>
-          </div>
+          <div id="plan-body" class="plan-body"><p class="plan-empty">No transition planned yet.</p></div>
         </article>
-
         <article class="panel log-card">
-          <h2>Activity log</h2>
+          <h2>Activity</h2>
           <div id="log-body" class="log-body" aria-live="polite"></div>
         </article>
       </section>
 
       <footer class="foot">
-        <span>MadCool DJ &middot; control surface</span>
+        <span>MadCool DJ · local mix bus · Roon co-pilot on Simon · † stubs</span>
       </footer>
     </div>
     <script type="module" src="/src/main.ts"></script>
