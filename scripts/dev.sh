@@ -3,6 +3,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 [[ -f "$ROOT/.env" ]] && set -a && source "$ROOT/.env" && set +a
 export ENGINE_SOCK="${ENGINE_SOCK:-${XDG_RUNTIME_DIR:-/tmp}/madcool-dj.sock}"
+# Expand literal ${XDG_RUNTIME_DIR} if .env was sourced without shell expansion
+if [[ "$ENGINE_SOCK" == *'${XDG_RUNTIME_DIR}'* ]]; then
+  ENGINE_SOCK="${ENGINE_SOCK//\$\{XDG_RUNTIME_DIR\}/${XDG_RUNTIME_DIR:-/tmp}}"
+  export ENGINE_SOCK
+fi
 rm -f "$ENGINE_SOCK"
 
 # Ensure engine venv exists
@@ -29,9 +34,17 @@ fi
 ) &
 ENGINE_PID=$!
 
+CONTROL_PID=""
 cleanup() {
-  kill "$ENGINE_PID" 2>/dev/null || true
+  local status=$?
+  [[ -n "${CONTROL_PID:-}" ]] && { pkill -TERM -P "$CONTROL_PID" 2>/dev/null || true; kill -TERM "$CONTROL_PID" 2>/dev/null || true; }
+  kill -TERM "$ENGINE_PID" 2>/dev/null || true
+  sleep 0.3
+  [[ -n "${CONTROL_PID:-}" ]] && { pkill -KILL -P "$CONTROL_PID" 2>/dev/null || true; kill -KILL "$CONTROL_PID" 2>/dev/null || true; }
+  kill -KILL "$ENGINE_PID" 2>/dev/null || true
   wait "$ENGINE_PID" 2>/dev/null || true
+  [[ -n "${CONTROL_PID:-}" ]] && wait "$CONTROL_PID" 2>/dev/null || true
+  exit "$status"
 }
 trap cleanup EXIT INT TERM
 
@@ -44,4 +57,7 @@ done
 
 cd "$ROOT/control"
 export ENGINE_SOCK
-exec npm run dev
+# Keep this shell alive so trap can tear down the engine (do not exec).
+npm run dev &
+CONTROL_PID=$!
+wait "$CONTROL_PID"

@@ -7,6 +7,7 @@ import type { Server } from "node:http";
 
 import { serve } from "@hono/node-server";
 
+import { requireTokenForBind } from "./auth.js";
 import { engineClient } from "./engineClient.js";
 import { createApp } from "./routes.js";
 import { closeRoon, connectRoon, roonStatus } from "./roon.js";
@@ -14,6 +15,8 @@ import { attachWebSocket } from "./ws.js";
 
 const host = process.env.DJ_HOST || "127.0.0.1";
 const port = Number(process.env.DJ_PORT || 8787);
+
+requireTokenForBind(host);
 
 engineClient.on("connect", () => {
   console.log(`[control] engine connected (${engineClient.path})`);

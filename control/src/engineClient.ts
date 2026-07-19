@@ -96,11 +96,19 @@ export class EngineClient extends EventEmitter {
   private attemptConnect(): void {
     if (this.stopped) return;
 
+    if (this.socket) {
+      this.socket.removeAllListeners();
+      this.socket.destroy();
+      this.socket = null;
+    }
+    this.buffer = "";
+
     const socket = net.createConnection(this.sockPath);
     this.socket = socket;
 
     socket.on("connect", () => {
       this.connected = true;
+      this.buffer = "";
       this.reconnectDelay = RECONNECT_BASE_MS;
       this.emit("connect");
     });
@@ -119,6 +127,7 @@ export class EngineClient extends EventEmitter {
       if (!this.connected && !this.socket) return; // already handled
       this.connected = false;
       this.socket = null;
+      this.buffer = "";
       this.rejectAllPending(new Error("engine_disconnected"));
       this.emit("disconnect", err);
       this.scheduleReconnect();

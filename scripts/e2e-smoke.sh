@@ -169,14 +169,43 @@ DECK_A_PLAYING="$(echo "$STATUS" | jq -r '.result.decks.a.playing // false')"
 AUTOPILOT_ON="$(echo "$STATUS" | jq -r '.result.autopilot // false')"
 
 echo
+echo "==> library.browse (fixtures)"
+BROWSE="$(cmd "library.browse" "{\"path\":\"$ROOT/fixtures/clips\"}")"
+echo "$BROWSE"
+BROWSE_FILES="$(echo "$BROWSE" | jq -r '.result.files | length')"
+
+echo
+echo "==> studio.status"
+STUDIO="$(cmd "studio.status")"
+echo "$STUDIO" | jq -c '{fx:.result.fx.enabled, pads:(.result.sampler.pads|length)}' 2>/dev/null || echo "$STUDIO"
+STUDIO_OK="$(echo "$STUDIO" | jq -r '.ok // false')"
+
+echo
+echo "==> music.status (optional key)"
+MUSIC="$(cmd "music.status" || true)"
+echo "$MUSIC" | head -c 400; echo
+MUSIC_OK="$(echo "$MUSIC" | jq -r '.ok // false' 2>/dev/null || echo false)"
+
+echo
 echo "=== e2e-smoke summary ==="
 echo "health.ok=$HEALTH_OK  status.ok=$STATUS_OK  library.scan.count=$SCAN_COUNT"
 echo "deck.a.path=$DECK_A_PATH  deck.a.playing=$DECK_A_PLAYING  autopilot=$AUTOPILOT_ON"
+echo "browse.files=$BROWSE_FILES  studio.ok=$STUDIO_OK  music.ok=$MUSIC_OK"
 
-if [[ "$HEALTH_OK" == "true" && "$STATUS_OK" == "true" ]]; then
-  echo "PASS: protocol path (health + status) ok"
+FAILS=0
+[[ "$HEALTH_OK" == "true" ]] || { echo "FAIL: health" >&2; FAILS=$((FAILS+1)); }
+[[ "$STATUS_OK" == "true" ]] || { echo "FAIL: status" >&2; FAILS=$((FAILS+1)); }
+[[ "$SCAN_COUNT" -ge 2 ]] || { echo "FAIL: expected scan count >= 2, got $SCAN_COUNT" >&2; FAILS=$((FAILS+1)); }
+[[ "$DECK_A_PATH" == *clip_a.wav ]] || { echo "FAIL: deck A path should end with clip_a.wav" >&2; FAILS=$((FAILS+1)); }
+[[ "$DECK_A_PLAYING" == "true" ]] || { echo "FAIL: deck A should be playing" >&2; FAILS=$((FAILS+1)); }
+[[ "$AUTOPILOT_ON" == "true" ]] || { echo "FAIL: autopilot should be on" >&2; FAILS=$((FAILS+1)); }
+[[ "$BROWSE_FILES" -ge 2 ]] || { echo "FAIL: browse should list >= 2 files" >&2; FAILS=$((FAILS+1)); }
+[[ "$STUDIO_OK" == "true" ]] || { echo "FAIL: studio.status" >&2; FAILS=$((FAILS+1)); }
+
+if [[ "$FAILS" -eq 0 ]]; then
+  echo "PASS: protocol path + load/play/autopilot/browse/studio"
   exit 0
 else
-  echo "FAIL: health or status did not report ok" >&2
+  echo "FAIL: $FAILS assertion(s) failed" >&2
   exit 1
 fi

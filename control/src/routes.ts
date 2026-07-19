@@ -2,13 +2,14 @@
  * HTTP routes for the control plane. Auth: when `DJ_TOKEN` is set (non-empty),
  * every `/v1/*` request must carry a matching `Authorization: Bearer <token>`
  * header. `/health` always stays open so process supervisors / load balancers
- * can probe it without a token.
+ * can probe it without a token. Non-loopback bind requires DJ_TOKEN at boot
+ * (see auth.ts / index.ts).
  */
 
-import { createWriteStream, existsSync, mkdirSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, extname, join } from "node:path";
-import { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 
@@ -16,6 +17,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { z } from "zod";
 
+import { bearerFromHeader, tokenMatches } from "./auth.js";
 import { execute } from "./bus.js";
 
 const cmdSchema = z.object({
@@ -24,6 +26,7 @@ const cmdSchema = z.object({
 });
 
 const AUDIO_EXTS = new Set([".wav", ".flac", ".mp3", ".aiff", ".aif", ".ogg", ".m4a", ".aac"]);
+const MAX_UPLOAD_BYTES = 200 * 1024 * 1024; // 200 MB
 
 // control/src/routes.ts (or control/dist/routes.js, same depth) -> repo root.
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -36,14 +39,13 @@ export function createApp(): Hono {
   app.get("/health", (c) => c.json({ ok: true, service: "madcool-dj-control" }));
 
   app.use("/v1/*", async (c, next) => {
-    const token = process.env.DJ_TOKEN;
-    if (!token) {
+    const expected = (process.env.DJ_TOKEN || "").trim();
+    if (!expected) {
       await next();
       return;
     }
-    const header = c.req.header("Authorization") ?? "";
-    const [scheme, value] = header.split(" ");
-    if (scheme !== "Bearer" || value !== token) {
+    const provided = bearerFromHeader(c.req.header("Authorization"));
+    if (!tokenMatches(provided)) {
       return c.json({ ok: false, error: "unauthorized" }, 401);
     }
     await next();
@@ -81,11 +83,15 @@ export function createApp(): Hono {
 
   /** Drop-target upload: save audio under ~/.cache/madcool-dj/uploads and optionally load a deck. */
   app.post("/v1/upload", async (c) => {
+    let dest: string | null = null;
     try {
       const form = await c.req.formData();
       const file = form.get("file");
       if (!(file instanceof File)) {
         return c.json({ ok: false, error: "missing_file" }, 400);
+      }
+      if (typeof file.size === "number" && file.size > MAX_UPLOAD_BYTES) {
+        return c.json({ ok: false, error: `upload_too_large:max_${MAX_UPLOAD_BYTES}` }, 413);
       }
       const ext = extname(file.name || "").toLowerCase();
       if (!AUDIO_EXTS.has(ext)) {
@@ -93,10 +99,22 @@ export function createApp(): Hono {
       }
       mkdirSync(UPLOAD_DIR, { recursive: true });
       const safe = (file.name || `drop${ext}`).replace(/[^\w.\-]+/g, "_").slice(0, 120);
-      const dest = join(UPLOAD_DIR, `${Date.now()}_${safe}`);
+      dest = join(UPLOAD_DIR, `${Date.now()}_${safe}`);
       const body = file.stream();
+      let written = 0;
+      const limiter = new Transform({
+        transform(chunk, _enc, cb) {
+          written += chunk.length;
+          if (written > MAX_UPLOAD_BYTES) {
+            cb(new Error(`upload_too_large:max_${MAX_UPLOAD_BYTES}`));
+            return;
+          }
+          cb(null, chunk);
+        },
+      });
       await pipeline(
         Readable.fromWeb(body as import("node:stream/web").ReadableStream),
+        limiter,
         createWriteStream(dest),
       );
 
@@ -113,7 +131,16 @@ export function createApp(): Hono {
       }
       return c.json({ ok: true, result: { path: dest, name: file.name, load } });
     } catch (err) {
-      return c.json({ ok: false, error: errorMessage(err) }, 502);
+      if (dest) {
+        try {
+          unlinkSync(dest);
+        } catch {
+          /* ignore */
+        }
+      }
+      const msg = errorMessage(err);
+      const status = msg.startsWith("upload_too_large") ? 413 : 502;
+      return c.json({ ok: false, error: msg }, status);
     }
   });
 

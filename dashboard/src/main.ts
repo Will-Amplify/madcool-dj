@@ -21,6 +21,7 @@ interface StatusResult {
   crossfade: number;
   decks: { a: DeckSummary; b: DeckSummary };
   autopilot: boolean;
+  fixtures_root?: string;
   audio?: {
     mode?: string;
     stream_active?: boolean;
@@ -377,7 +378,12 @@ function wireFileRow(li: HTMLLIElement, path: string, label: string, title?: str
   const indexed = library.find((t) => t.path === path);
   const bpm = indexed?.analysis?.bpm ? `${indexed.analysis.bpm.toFixed(0)} bpm` : "";
   li.draggable = true;
-  li.innerHTML = `<span>${label}</span><span class="meta">${bpm}</span>`;
+  const nameSpan = document.createElement("span");
+  nameSpan.textContent = label;
+  const metaSpan = document.createElement("span");
+  metaSpan.className = "meta";
+  metaSpan.textContent = bpm;
+  li.replaceChildren(nameSpan, metaSpan);
   li.title = `Load to deck ${loadTarget.toUpperCase()}: ${path}`;
   li.ondragstart = (ev) => {
     ev.dataTransfer?.setData("application/x-madcool-path", path);
@@ -413,7 +419,12 @@ function renderLibrary(): void {
     if (q && !matchesFilter(dir.name, q) && !matchesFilter(dir.path, q)) continue;
     const li = document.createElement("li");
     li.className = "is-dir";
-    li.innerHTML = `<span>📁 ${dir.name}</span><span class="meta">dir</span>`;
+    const nameSpan = document.createElement("span");
+    nameSpan.textContent = `📁 ${dir.name}`;
+    const metaSpan = document.createElement("span");
+    metaSpan.className = "meta";
+    metaSpan.textContent = "dir";
+    li.replaceChildren(nameSpan, metaSpan);
     li.title = dir.path;
     li.onclick = () => void browseTo(dir.path);
     libList.appendChild(li);
@@ -476,11 +487,30 @@ function renderZoneCard(z: RoonZone): HTMLLIElement {
   li.className = "zone-card";
 
   const head = document.createElement("div");
+  const titleRow = document.createElement("div");
+  const strong = document.createElement("strong");
+  strong.textContent = z.displayName;
+  const meta = document.createElement("span");
+  meta.className = "meta";
+  meta.textContent = ` ${z.state}${z.queueItemsRemaining ? ` · ${z.queueItemsRemaining} queued` : ""}`;
+  titleRow.append(strong, meta);
+  head.appendChild(titleRow);
+
+  const nowPlaying = document.createElement("div");
+  nowPlaying.className = "zone-now";
   const np = z.nowPlaying;
-  const nowLines = np
-    ? `<div class="zone-now"><strong>${np.line1}</strong><div class="meta">${np.line2}${np.line3 ? ` · ${np.line3}` : ""}</div></div>`
-    : `<div class="zone-now meta">Nothing playing</div>`;
-  head.innerHTML = `<div><strong>${z.displayName}</strong> <span class="meta">${z.state}${z.queueItemsRemaining ? ` · ${z.queueItemsRemaining} queued` : ""}</span></div>${nowLines}`;
+  if (np) {
+    const line1 = document.createElement("strong");
+    line1.textContent = np.line1 || "";
+    const line2 = document.createElement("div");
+    line2.className = "meta";
+    line2.textContent = `${np.line2 || ""}${np.line3 ? ` · ${np.line3}` : ""}`;
+    nowPlaying.append(line1, line2);
+  } else {
+    nowPlaying.classList.add("meta");
+    nowPlaying.textContent = "Nothing playing";
+  }
+  head.appendChild(nowPlaying);
   li.appendChild(head);
 
   const transport = document.createElement("div");
@@ -624,6 +654,8 @@ async function refreshRoon(): Promise<void> {
     const zones = result.zones || [];
     setBadge(roonBadge, true);
     roonHint.textContent = `${zones.length} zone(s) · transport, seek, volume, shuffle / loop / radio`;
+    // Don't wipe the list mid-scrub — seek/volume pointer capture dies otherwise.
+    if (roonScrubbing.size > 0 || roonVolChanging.size > 0) return;
     roonList.innerHTML = "";
     for (const z of zones) {
       roonList.appendChild(renderZoneCard(z));
@@ -631,7 +663,9 @@ async function refreshRoon(): Promise<void> {
   } catch (e) {
     setBadge(roonBadge, false, true);
     roonHint.textContent = String(e);
-    roonList.innerHTML = "";
+    if (roonScrubbing.size === 0 && roonVolChanging.size === 0) {
+      roonList.innerHTML = "";
+    }
   }
 }
 
@@ -901,12 +935,22 @@ btnFind.onclick = async () => {
 
 btnLoadFixtures.onclick = async () => {
   try {
-    await refreshLibrary();
+    const st = await getStatus();
+    const fixtureRoot = st.fixtures_root || "/home/madcoolseed/Projects/madcool-dj/fixtures/clips";
+    const scan = await cmd<{ root: string; count: number }>("library.scan", { root: fixtureRoot });
+    const listed = await cmd<{ tracks: LibraryTrack[] }>("library.list");
+    library = listed.tracks || [];
+    analysisByPath = new Map(library.filter((t) => t.path).map((t) => [t.path, t.analysis]));
     const clips = library.filter((t) => /clip_[ab]\.wav$/i.test(t.path));
     const a = clips.find((t) => /clip_a/i.test(t.path)) || clips[0];
     const b = clips.find((t) => /clip_b/i.test(t.path)) || clips[1];
+    if (!a && !b) {
+      flash(`No fixtures in ${scan.root} — run ./scripts/make-fixtures.sh`);
+      return;
+    }
     if (a) await loadOntoDeck("a", a.path, a.title || "clip_a");
     if (b) await loadOntoDeck("b", b.path, b.title || "clip_b");
+    await browseTo(scan.root).catch(() => undefined);
     flash("Fixtures on A/B");
     log("loaded fixtures");
   } catch (e) {
@@ -929,7 +973,12 @@ btnRoonRefresh.onclick = () => void refreshRoon();
 libSearch.oninput = () => renderLibrary();
 
 tokenInput.value = localStorage.getItem(TOKEN_KEY) || "";
-tokenInput.onchange = () => localStorage.setItem(TOKEN_KEY, tokenInput.value);
+const persistToken = () => {
+  localStorage.setItem(TOKEN_KEY, tokenInput.value);
+  reconnectWs();
+};
+tokenInput.onchange = persistToken;
+tokenInput.onblur = persistToken;
 
 wireDeck("a");
 wireDeck("b");
@@ -970,22 +1019,62 @@ async function poll(): Promise<void> {
   }
 }
 
+let liveWs: WebSocket | null = null;
+let wsReconnectTimer: number | null = null;
+let wsGeneration = 0;
+
+function reconnectWs(): void {
+  wsGeneration += 1;
+  if (wsReconnectTimer != null) {
+    window.clearTimeout(wsReconnectTimer);
+    wsReconnectTimer = null;
+  }
+  try {
+    liveWs?.close();
+  } catch {
+    /* ignore */
+  }
+  liveWs = null;
+  connectWs();
+}
+
 function connectWs(): void {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const t = token();
   const q = t ? `?token=${encodeURIComponent(t)}` : "";
+  if (liveWs && (liveWs.readyState === WebSocket.OPEN || liveWs.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+  const gen = wsGeneration;
   const ws = new WebSocket(`${proto}://${location.host}/v1/live${q}`);
-  ws.onopen = () => setBadge(connBadge, true);
-  ws.onclose = () => {
-    setBadge(connBadge, false);
-    window.setTimeout(connectWs, 1500);
+  liveWs = ws;
+  ws.onopen = () => {
+    if (gen !== wsGeneration) return;
+    setBadge(connBadge, true);
   };
-  ws.onerror = () => setBadge(connBadge, false, true);
+  ws.onclose = () => {
+    if (liveWs === ws) liveWs = null;
+    if (gen !== wsGeneration) return;
+    setBadge(connBadge, false);
+    if (wsReconnectTimer == null) {
+      wsReconnectTimer = window.setTimeout(() => {
+        wsReconnectTimer = null;
+        connectWs();
+      }, 1500);
+    }
+  };
+  ws.onerror = () => {
+    if (gen !== wsGeneration) return;
+    setBadge(connBadge, false, true);
+  };
   ws.onmessage = (ev) => {
     try {
       const msg = JSON.parse(String(ev.data));
       if (msg.event === "plan") {
-        planBody.innerHTML = `<pre>${JSON.stringify(msg.data, null, 2)}</pre>`;
+        planBody.replaceChildren();
+        const pre = document.createElement("pre");
+        pre.textContent = JSON.stringify(msg.data, null, 2);
+        planBody.appendChild(pre);
       }
       if (msg.event) log(`${msg.event} ${JSON.stringify(msg.data ?? {})}`.slice(0, 180));
     } catch {
@@ -1361,6 +1450,7 @@ function renderJob(job: {
 
 async function pollGenJob(id: string): Promise<void> {
   if (genPollTimer) window.clearInterval(genPollTimer);
+  let failStreak = 0;
   const tick = async () => {
     try {
       const job = await cmd<{
@@ -1369,6 +1459,7 @@ async function pollGenJob(id: string): Promise<void> {
         error?: string;
         result?: { path?: string; duration_ms?: number | null };
       }>("music.job", { id });
+      failStreak = 0;
       renderJob(job);
       if (job.status === "done" && job.result?.path) {
         if (genPollTimer) window.clearInterval(genPollTimer);
@@ -1385,7 +1476,14 @@ async function pollGenJob(id: string): Promise<void> {
         flash(job.error || "generate failed");
       }
     } catch (e) {
+      failStreak += 1;
       flash(String(e));
+      if (failStreak >= 5) {
+        if (genPollTimer) window.clearInterval(genPollTimer);
+        genPollTimer = null;
+        genJobEl.className = "gen-job is-error";
+        genJobEl.textContent = `Poll stopped after errors: ${String(e)}`;
+      }
     }
   };
   await tick();

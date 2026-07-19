@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -38,7 +39,14 @@ class PadSampler:
                         mapping[pad] = str(wav.relative_to(root))
         loaded = {}
         for pad, rel in mapping.items():
-            path = root / rel
+            candidate = Path(rel)
+            path = candidate if candidate.is_absolute() else (root / candidate)
+            try:
+                path = path.resolve()
+                if not str(path).startswith(str(root.resolve()) + os.sep) and path != root.resolve():
+                    continue
+            except OSError:
+                continue
             if not path.is_file():
                 continue
             audio = load_stereo_44k(path)

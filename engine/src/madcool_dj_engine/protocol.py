@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import socket
 import threading
 from pathlib import Path
@@ -49,6 +50,10 @@ class EngineProtocolServer:
 
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         server.bind(str(sock_path))
+        try:
+            os.chmod(str(sock_path), 0o600)
+        except OSError:
+            logger.warning("could not chmod socket to 0600: %s", sock_path)
         server.listen(8)
         self._server = server
 

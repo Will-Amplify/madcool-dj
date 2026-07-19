@@ -127,7 +127,10 @@ def start_stream(
         if _callback is None:
             outdata.fill(0)
             return
-        outdata[:] = _callback(frames)
+        try:
+            outdata[:] = _callback(frames)
+        except Exception:
+            outdata.fill(0)
 
     kwargs: dict[str, Any] = {
         "samplerate": sr,

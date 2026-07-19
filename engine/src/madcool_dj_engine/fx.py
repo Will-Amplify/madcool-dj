@@ -6,6 +6,10 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
+from scipy.signal import lfilter
+
+# Bypass filter when cutoff is at/above this (default 18 kHz = open).
+FILTER_BYPASS_HZ = 18000.0
 
 
 def _clamp(x: float, lo: float, hi: float) -> float:
@@ -79,8 +83,8 @@ class MasterFX:
         p = self.params
         n = len(x)
 
-        # Block-rate LFO → one-pole LPF coeff (stable enough for wobbles ≤ ~8 Hz)
-        if p.filter_hz < 19000.0 or (p.lfo_hz > 0.0 and p.lfo_depth > 0.0):
+        filter_engaged = p.filter_hz < FILTER_BYPASS_HZ or (p.lfo_hz > 0.0 and p.lfo_depth > 0.0)
+        if filter_engaged:
             mid = n * 0.5 / self.sr
             lfo = 0.5 * (1.0 + math.sin(self._lfo_phase + 2.0 * math.pi * p.lfo_hz * mid))
             self._lfo_phase = (self._lfo_phase + 2.0 * math.pi * p.lfo_hz * n / self.sr) % (2.0 * math.pi)
@@ -91,18 +95,14 @@ class MasterFX:
                 bright = x - float(self._lp_state.mean())
                 x = (x + bright * ((p.filter_res - 1.0) * 0.12)).astype(np.float32)
             alpha = 1.0 - a
+            # y[n] = a*y[n-1] + alpha*x[n] via scipy (vectorized, keeps zi)
             y = np.empty_like(x, dtype=np.float64)
-            state = self._lp_state.copy()
+            b = np.array([alpha], dtype=np.float64)
+            a_coeffs = np.array([1.0, -a], dtype=np.float64)
             for ch in range(2):
-                acc = float(state[ch])
-                col = x[:, ch]
-                out_ch = np.empty(n, dtype=np.float64)
-                for i in range(n):
-                    acc = a * acc + alpha * float(col[i])
-                    out_ch[i] = acc
+                out_ch, zf = lfilter(b, a_coeffs, x[:, ch].astype(np.float64), zi=[self._lp_state[ch]])
                 y[:, ch] = out_ch
-                state[ch] = acc
-            self._lp_state = state
+                self._lp_state[ch] = float(zf[0])
             x = y.astype(np.float32)
 
         if p.delay_mix > 0.0 and p.delay_ms > 1.0:

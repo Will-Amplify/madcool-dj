@@ -142,12 +142,22 @@ function slug(s: string): string {
     .slice(0, 48) || "track";
 }
 
-async function downloadUrl(url: string, dest: string): Promise<void> {
-  const res = await fetch(url);
-  if (!res.ok || !res.body) throw new Error(`minimax_download_failed:${res.status}`);
-  // Node 22: res.body is web stream
-  const nodeStream = Readable.fromWeb(res.body as import("node:stream/web").ReadableStream);
-  await pipeline(nodeStream, createWriteStream(dest));
+async function downloadUrl(url: string, dest: string, timeoutMs = 120_000): Promise<void> {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: ac.signal });
+    if (!res.ok || !res.body) throw new Error(`minimax_download_failed:${res.status}`);
+    const nodeStream = Readable.fromWeb(res.body as import("node:stream/web").ReadableStream);
+    await pipeline(nodeStream, createWriteStream(dest));
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error("minimax_download_timeout");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function hexToFile(hex: string, dest: string): void {

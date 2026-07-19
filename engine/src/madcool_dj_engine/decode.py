@@ -42,7 +42,13 @@ def load_stereo_44k(
         str(SAMPLE_RATE),
         "-",
     ]
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    proc = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+        timeout=90,
+    )
     raw = np.frombuffer(proc.stdout, dtype=np.int16)
     if raw.size % 2:
         raw = raw[: raw.size - 1]

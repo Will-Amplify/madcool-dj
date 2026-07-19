@@ -18,18 +18,19 @@ cp .env.example .env
 
 ## e2e smoke
 
-`./scripts/e2e-smoke.sh` boots its own isolated engine + control pair (own socket at `/tmp/madcool-e2e.sock`, own port at `:8799` by default — never touches whatever `dev.sh` has running) and drives the full protocol path over the HTTP command bus: `health` → `library.scan` (fixtures) → `analyze.file` on both clips → `deck.load` a/b → `deck.play a` → `autopilot.enable` → `status`. It tears both processes down on exit (success, failure, or Ctrl-C) and dumps their logs if anything failed.
+`./scripts/e2e-smoke.sh` boots its own isolated engine + control pair (own socket at `/tmp/madcool-e2e.sock`, own port at `:8799` by default — never touches whatever `dev.sh` has running) and drives the full protocol path over the HTTP command bus: `health` → `library.scan` (fixtures) → `analyze.file` on both clips → `deck.load` a/b → `deck.play a` → `autopilot.enable` → `status` → `library.browse` → `studio.status` (+ optional `music.status`). It asserts load/play/autopilot/browse — not just health — and tears both processes down on exit.
 
 ```bash
 ./scripts/make-fixtures.sh   # once, if fixtures/clips is empty
 ./scripts/e2e-smoke.sh
+./scripts/verify.sh          # full professional gate (pytest + builds + smokes + e2e)
 ```
 
 Exits `0` when `health` and `status` both report `ok: true` (the protocol path — no PortAudio/hardware required). Override `ENGINE_SOCK`, `DJ_HOST`, or `DJ_PORT` env vars if `:8799` or the default socket path is taken.
 
 ## Tailscale bind
 
-When `DJ_HOST` is not loopback (e.g. serving on tom-1 at `100.85.196.90`), requests must include a valid `DJ_TOKEN`. Set a strong token in `.env` before exposing the control API beyond localhost.
+When `DJ_HOST` is not loopback (e.g. serving on tom-1 at `100.85.196.90` or `0.0.0.0`), a non-empty `DJ_TOKEN` is **required** — control refuses to start without one. Requests must include `Authorization: Bearer …` (dashboard token field; WS uses `?token=`). Set a strong token in `.env` before exposing beyond localhost.
 
 ## Roon
 

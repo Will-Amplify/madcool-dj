@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from madcool_dj_engine.paths import browse_parent, resolve_under_allowlist
+
 AUDIO_EXTS = {".wav", ".flac", ".mp3", ".aiff", ".aif", ".ogg", ".m4a", ".aac"}
 
 
@@ -17,9 +19,12 @@ def scan_dir(root: str | Path) -> list[str]:
 
     A missing root scans to an empty list rather than raising — callers
     (CLI, protocol commands) decide how to report "nothing found" vs. a
-    bad root path.
+    bad root path. Root must be under the engine allowlist.
     """
-    root_path = Path(root)
+    try:
+        root_path = resolve_under_allowlist(root)
+    except PermissionError:
+        return []
     if not root_path.exists():
         return []
     return [
@@ -31,7 +36,7 @@ def scan_dir(root: str | Path) -> list[str]:
 
 def browse_dir(path: str | Path) -> dict:
     """One-level directory listing for the files panel (dirs + audio files)."""
-    root = Path(path).expanduser().resolve()
+    root = resolve_under_allowlist(Path(path).expanduser())
     if not root.exists() or not root.is_dir():
         raise FileNotFoundError(f"not_a_directory: {root}")
     dirs: list[dict] = []
@@ -47,10 +52,9 @@ def browse_dir(path: str | Path) -> dict:
             dirs.append({"name": child.name, "path": str(child)})
         elif child.is_file() and child.suffix.lower() in AUDIO_EXTS:
             files.append({"name": child.name, "path": str(child), "title": child.stem})
-    parent = str(root.parent) if root.parent != root else None
     return {
         "path": str(root),
-        "parent": parent,
+        "parent": browse_parent(root),
         "dirs": dirs,
         "files": files,
     }

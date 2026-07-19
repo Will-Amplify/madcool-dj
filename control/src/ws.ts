@@ -7,6 +7,7 @@
 import type { Server as HttpServer, IncomingMessage } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 
+import { bearerFromHeader, tokenMatches } from "./auth.js";
 import type { EngineClient, EngineEvent } from "./engineClient.js";
 
 const PING_INTERVAL_MS = 15_000;
@@ -14,6 +15,16 @@ const LIVE_PATH = "/v1/live";
 
 export function attachWebSocket(server: HttpServer, engineClient: EngineClient): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
+  const clients = new Set<WebSocket>();
+
+  // Single multiplexer — avoids one EventEmitter listener per tab.
+  const forwardAll = (evt: EngineEvent) => {
+    const payload = JSON.stringify(evt);
+    for (const ws of clients) {
+      if (ws.readyState === WebSocket.OPEN) ws.send(payload);
+    }
+  };
+  engineClient.on("event", forwardAll);
 
   server.on("upgrade", (req, socket, head) => {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -32,13 +43,8 @@ export function attachWebSocket(server: HttpServer, engineClient: EngineClient):
   });
 
   wss.on("connection", (ws: WebSocket) => {
+    clients.add(ws);
     ws.send(JSON.stringify({ event: "hello" }));
-
-    const forward = (evt: EngineEvent) => {
-      if (ws.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify(evt));
-    };
-    engineClient.on("event", forward);
 
     let alive = true;
     ws.on("pong", () => {
@@ -55,7 +61,7 @@ export function attachWebSocket(server: HttpServer, engineClient: EngineClient):
 
     ws.on("close", () => {
       clearInterval(pingTimer);
-      engineClient.off("event", forward);
+      clients.delete(ws);
     });
   });
 
@@ -63,12 +69,11 @@ export function attachWebSocket(server: HttpServer, engineClient: EngineClient):
 }
 
 function isAuthorized(req: IncomingMessage, url: URL): boolean {
-  const token = process.env.DJ_TOKEN;
-  if (!token) return true;
+  const expected = (process.env.DJ_TOKEN || "").trim();
+  if (!expected) return true;
 
-  const header = req.headers.authorization ?? "";
-  const [scheme, value] = header.split(" ");
-  if (scheme === "Bearer" && value === token) return true;
+  const fromHeader = bearerFromHeader(req.headers.authorization);
+  if (tokenMatches(fromHeader)) return true;
 
-  return url.searchParams.get("token") === token;
+  return tokenMatches(url.searchParams.get("token"));
 }

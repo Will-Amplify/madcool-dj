@@ -6,56 +6,62 @@ Fast path for the next agent / Will on Tom.
 
 ```bash
 cd ~/Projects/madcool-dj
-./scripts/dev.sh
-# http://127.0.0.1:8787/
+./scripts/verify.sh          # full gate: pytest + builds + smokes + e2e
+./scripts/dev.sh             # http://127.0.0.1:8787/  (or DJ_HOST)
 ```
 
-- **Engine** (Python): mix bus, decks, studio (synth/seq/FX/sampler), library
-- **Control** (TS/Hono `:8787`): HTTP/WS/MCP, Roon, MiniMax music gen
+- **Engine** (Python): mix bus, decks, studio (synth/seq/FX/sampler), library, path jail
+- **Control** (TS/Hono `:8787`): HTTP/WS/MCP, Roon, MiniMax music gen, auth
 - **Audio**: `DJ_AUDIO_MODE=shared` → PipeWire Default Sink (coexist with Roon)
 - **Roon**: Simon `100.109.124.125` — zone transport only, not PCM into decks
 
-## What shipped since shared-audio cut
+## Auth (professional gate)
 
-1. **Dubstep studio bus** — pads, wobble synth, 16-step seq, real master FX, transition macros  
-2. **Sample library** — procedural kit in `fixtures/dubstep` + `~/Music/dj-library/dubstep` (`scripts/make-dubstep-kit.py`)  
-3. **Also on disk (not git)**: Drumprints, Stargate CC0, drum-machines under `~/Music/dj-library/`  
-4. **MiniMax Music 3.0** — `control/src/minimax/*`, dashboard **Music Gen** panel, async jobs → `~/Music/dj-library/generated/`
+- Non-loopback `DJ_HOST` **requires** non-empty `DJ_TOKEN` (control refuses to boot otherwise).
+- Loopback may run without a token (e2e does this).
+- Put token in dashboard “token” field (persists + rebinds WS).
+
+## What shipped (audit sweep)
+
+P0/P1 hardening applied 2026-07-19:
+
+| Area | Fix |
+|------|-----|
+| Engine nice | Removed process-wide `os.nice` (was starving audio) |
+| Master FX | Default 18 kHz = bypass; engaged filter uses `scipy.lfilter` |
+| Autopilot | Join/generation-safe enable/disable (no double planner) |
+| Paths | Allowlist jail + socket `0600`; kit paths can’t escape kit root |
+| ffmpeg | Timeouts on decode/analyze |
+| Auth | Token required off-loopback; timing-safe compare; upload size cap |
+| Engine client | Clear line buffer on reconnect |
+| WS | Single multiplexer fan-out |
+| MiniMax | Download AbortController timeout; MCP `lyrics`/`jobs` |
+| Dashboard | XSS→textContent; token WS rebind; Roon scrub-aware refresh; fixtures path |
+| `dev.sh` | No `exec` — trap kills engine on exit |
+| e2e | Asserts load/play/autopilot/browse/studio (not just health) |
+
+## Verify cradle
+
+```bash
+./scripts/verify.sh
+# 53 pytest · control/dashboard build · auth/sources/roon/mcp smokes · e2e PASS
+```
+
+Control-only: `cd control && npm run smoke`
 
 ## MiniMax
 
 - Key: `MINIMAX_API_KEY` in `.env` **or** `~/MiniMax API.txt` (auto-load; do not commit)
 - API: `https://api.minimax.io/v1/music_generation` model `music-3.0`
-- Cmds: `music.status` | `music.previewPrompt` | `music.analyzeRef` | `music.lyrics` | `music.generate` | `music.job`
-- Prompt style: English creative brief (mood + BPM + genre + scene + 2–3 instruments), not tag soup
-- Expect **1–3 minutes** per generate; poll `music.job`
-
-## Dashboard surfaces
-
-| Panel | Role |
-|-------|------|
-| Files | Browse/load local audio; Shift+right-click → Music Gen reference |
-| Roon · Simon | Zone transport / seek / volume |
-| Decks A/B | Local mix only |
-| Music Gen · MiniMax 3.0 | Create / cover, full controls, reference drop |
-| Studio · Dubstep | Pads, wobble, seq, FX, transitions |
-
-## Verify
-
-```bash
-cd engine && . .venv/bin/activate && pytest -q   # 46 passed as of handoff
-cd control && npm run build
-cd dashboard && npm run build
-./scripts/e2e-smoke.sh                          # protocol path; no MiniMax
-```
+- Cmds: `music.status` | `music.previewPrompt` | `music.analyzeRef` | `music.lyrics` | `music.generate` | `music.job` | `music.jobs`
 
 ## Pitfalls
 
 - Don’t `pkill -f` patterns that match the shell command line
 - Shared mode needs Roon RAAT on `plug:pipewire` (`./scripts/roon-audio-mode.sh shared`)
 - `dashboard/dist` is gitignored — `dev.sh` / `npm run build` before serving
-- Cover mode needs a reference path; Create mode uses ref as vibe seed only
-- Generated URLs from MiniMax expire in ~24h — we download immediately to disk
+- Path jail: only MUSIC_ROOT, repo `fixtures/`, `~/.cache/madcool-dj`, `~/Music/dj-library` (+ `MADCOOL_DJ_EXTRA_ROOTS`)
+- Generated MiniMax URLs expire ~24h — we download immediately
 
 ## Repo
 

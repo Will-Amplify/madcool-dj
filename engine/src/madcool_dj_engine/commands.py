@@ -23,6 +23,7 @@ from madcool_dj_engine.autopilot import Autopilot
 from madcool_dj_engine.cache import load_analysis
 from madcool_dj_engine.library import browse_dir, scan_dir
 from madcool_dj_engine.mixer import DualDeckMixer
+from madcool_dj_engine.paths import resolve_under_allowlist
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_LIBRARY_ROOT = _REPO_ROOT / "fixtures" / "clips"
@@ -133,6 +134,7 @@ class EngineCommandHandler:
             "fx": self.mixer.studio.fx.snapshot(),
             "studio": self.mixer.studio.snapshot(),
             "audio": audio_info(),
+            "fixtures_root": str(DEFAULT_LIBRARY_ROOT),
         }
 
     def _device_claim(self, params: dict) -> dict:
@@ -171,9 +173,17 @@ class EngineCommandHandler:
         if stream_active() or has_callback():
             try:
                 restart_stream()
-            except Exception:
-                pass
+            except Exception as exc:
+                raise CommandError(f"device_restart_failed: {exc}") from exc
         return audio_info()
+
+    def _safe_audio_path(self, path: object) -> Path:
+        if not path or not isinstance(path, (str, Path)):
+            raise CommandError("missing_path")
+        try:
+            return resolve_under_allowlist(path)
+        except PermissionError as exc:
+            raise CommandError(str(exc)) from exc
 
     @staticmethod
     def _require_deck(params: dict) -> str:
@@ -184,15 +194,13 @@ class EngineCommandHandler:
 
     def _deck_load(self, params: dict) -> dict:
         deck = self._require_deck(params)
-        path = params.get("path")
-        if not path:
-            raise CommandError("missing_path")
+        path = self._safe_audio_path(params.get("path"))
         start_sec = float(params.get("startSec") or 0.0)
         source = str(params.get("source") or "local")
         title = str(params.get("title") or "")
         bins = int(params.get("waveformBins") or 256)
         try:
-            self.mixer.load(deck, Path(path), start_sec=start_sec, source=source, title=title)
+            self.mixer.load(deck, path, start_sec=start_sec, source=source, title=title)
         except Exception as exc:
             raise CommandError(f"deck_load_failed: {exc}") from exc
         summary = self._deck_summary(deck)
@@ -201,7 +209,7 @@ class EngineCommandHandler:
             summary["waveform"] = self.mixer.waveform(deck, bins=bins)
         except Exception:
             summary["waveform"] = []
-        cached = load_analysis(Path(path)) if Path(path).exists() else None
+        cached = load_analysis(path) if path.exists() else None
         if cached:
             summary["analysis"] = {
                 "bpm": cached.get("bpm"),
@@ -324,10 +332,8 @@ class EngineCommandHandler:
         return {"crossfade": self.mixer.crossfade}
 
     def _analyze_file(self, params: dict) -> dict:
-        path = params.get("path")
-        if not path:
-            raise CommandError("missing_path")
-        result = analyze_file(Path(path))
+        path = self._safe_audio_path(params.get("path"))
+        result = analyze_file(path)
         return {
             "bpm": result.get("bpm"),
             "duration_sec": result.get("duration_sec"),
@@ -338,7 +344,10 @@ class EngineCommandHandler:
 
     def _library_scan(self, params: dict) -> dict:
         root = params.get("root") or os.environ.get("MUSIC_ROOT") or DEFAULT_LIBRARY_ROOT
-        root_path = Path(root)
+        try:
+            root_path = resolve_under_allowlist(root)
+        except PermissionError as exc:
+            raise CommandError(str(exc)) from exc
         self.library_index = [{"path": p} for p in scan_dir(root_path)]
         return {"root": str(root_path), "count": len(self.library_index)}
 
@@ -390,7 +399,8 @@ class EngineCommandHandler:
     def _studio_load_kit(self, params: dict) -> dict:
         path = params.get("path")
         if path:
-            return self.mixer.studio.sampler.load_kit(Path(str(path)))
+            safe = self._safe_audio_path(path)
+            return self.mixer.studio.sampler.load_kit(safe)
         return self.mixer.studio.load_default_kit()
 
     def _sampler_trigger(self, params: dict) -> dict:

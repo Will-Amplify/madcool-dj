@@ -421,6 +421,12 @@ export class RoonClient {
       core_unpaired: (core: RoonCore) => {
         console.warn(`[roon] unpaired from core "${core.display_name}"`);
         this.state = { phase: "disconnected", core: null, lastError: "roon_unpaired" };
+        try {
+          this.moo?.transport?.close?.();
+        } catch {
+          /* ignore */
+        }
+        this.moo = null;
         this.connectStarted = false;
       },
     });

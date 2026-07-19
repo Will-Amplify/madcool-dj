@@ -7,7 +7,12 @@
     "dev": "tsx src/index.ts",
     "mcp": "tsx src/mcp-stdio.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "smoke:auth": "tsx scripts/auth-smoke.ts",
+    "smoke:sources": "tsx scripts/sources-smoke.ts",
+    "smoke:roon": "tsx scripts/roon-mock-smoke.ts",
+    "smoke:mcp": "tsx scripts/mcp-smoke.ts",
+    "smoke": "npm run smoke:auth && npm run smoke:sources && npm run smoke:roon && npm run smoke:mcp"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",

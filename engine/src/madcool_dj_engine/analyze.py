@@ -1,8 +1,9 @@
 """Lightweight, pure-numpy audio analyzer.
 
 No librosa, no Demucs — just ffmpeg for decode and numpy/scipy for the math.
-Built to be gentle on old hardware (i5-3210M class machines): we `os.nice(10)`
-before the heavy FFT work and keep everything O(n) over a modest hop size.
+Built to be gentle on old hardware (i5-3210M class machines): ffmpeg decode is
+subprocess-isolated (never nice the whole engine / audio callback). Keep
+everything O(n) over a modest hop size.
 """
 
 from __future__ import annotations
@@ -59,7 +60,13 @@ def decode_mono_22k(path: Path, max_seconds: Optional[float] = None) -> tuple[np
         str(SAMPLE_RATE),
         "-",
     ]
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    proc = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+        timeout=120,
+    )
     audio = np.frombuffer(proc.stdout, dtype=np.float32)
     return audio, SAMPLE_RATE
 
@@ -273,10 +280,8 @@ def analyze_file(path: Path) -> dict:
     if cached is not None:
         return cached
 
-    try:
-        os.nice(10)
-    except (OSError, AttributeError):
-        pass
+    # Do NOT os.nice() here — that nices the whole engine process (incl. audio).
+    # Decode/ffmpeg already run as a subprocess; keep the mix callback at normal priority.
 
     audio, sr = decode_mono_22k(path)
     duration_sec = len(audio) / float(sr) if sr else 0.0

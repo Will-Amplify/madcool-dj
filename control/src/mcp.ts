@@ -313,6 +313,15 @@ export function createMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "dj_music_lyrics",
+    {
+      description: "Generate lyrics via MiniMax for a creative brief (optional before generate).",
+      inputSchema: { params: z.record(z.string(), z.unknown()) },
+    },
+    async (args) => run("music.lyrics", args.params),
+  );
+
+  server.registerTool(
     "dj_music_generate",
     {
       description:
@@ -329,6 +338,14 @@ export function createMcpServer(): McpServer {
       inputSchema: { id: z.string().min(1) },
     },
     async (args) => run("music.job", args),
+  );
+
+  server.registerTool(
+    "dj_music_jobs",
+    {
+      description: "List recent MiniMax music generation jobs.",
+    },
+    async () => run("music.jobs"),
   );
 
   server.registerTool(

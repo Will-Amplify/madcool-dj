@@ -125,19 +125,28 @@ class Autopilot:
         self._stop = threading.Event()
 
     def enable(self) -> None:
-        if self.enabled:
+        if self.enabled and self._thread is not None and self._thread.is_alive():
             return
+        # Stop any prior planner before starting a new one (avoid double tick).
+        self.disable()
         self.enabled = True
         self._stop.clear()
-        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread = threading.Thread(target=self._loop, daemon=True, name="autopilot")
         self._thread.start()
 
     def disable(self) -> None:
         self.enabled = False
         self._stop.set()
+        t = self._thread
+        if t is not None and t.is_alive() and t is not threading.current_thread():
+            t.join(timeout=2.0)
+        self._thread = None
 
     def _loop(self) -> None:
+        me = threading.current_thread()
         while not self._stop.is_set():
+            if self._thread is not me:
+                break
             try:
                 self.tick()
             except Exception:  # noqa: BLE001 - a bad tick must not kill the thread

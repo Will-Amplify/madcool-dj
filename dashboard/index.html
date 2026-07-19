@@ -4,6 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MadCool DJ</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
   </head>
   <body>
     <div class="app">
@@ -122,7 +128,7 @@
             <div class="meta-item"><span class="meta-label">autopilot</span><span class="meta-value" id="autopilot-state">off</span></div>
             <div class="meta-item"><span class="meta-label">engine</span><span class="meta-value" id="engine-version">—</span></div>
           </div>
-          <span id="transport-status" class="transport-status"></span>
+          <span id="transport-status" class="transport-status" role="status" aria-live="polite"></span>
         </div>
 
         <!-- Deck B -->
