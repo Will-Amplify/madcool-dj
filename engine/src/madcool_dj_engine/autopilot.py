@@ -14,8 +14,9 @@ from __future__ import annotations
 import logging
 import math
 import threading
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 from madcool_dj_engine.analyze import analyze_file
 from madcool_dj_engine.cache import load_analysis
@@ -54,9 +55,9 @@ def _bpm_distance(current_bpm: float, track_bpm: float) -> float:
 def pick_next(
     current: dict,
     tracks: list[dict],
-    recent: Optional[list[str]] = None,
+    recent: list[str] | None = None,
     bpm_window: float = DEFAULT_BPM_WINDOW,
-) -> Optional[dict]:
+) -> dict | None:
     """Pick the best next track to follow `current`.
 
     `current` needs `bpm` (float) and `bands` (dict of band -> 0..1 energy).
@@ -76,7 +77,7 @@ def pick_next(
     lo = current_bpm * (1.0 - bpm_window)
     hi = current_bpm * (1.0 + bpm_window)
 
-    best: Optional[dict] = None
+    best: dict | None = None
     best_score = math.inf
     for track in tracks:
         path = track.get("path")
@@ -118,10 +119,10 @@ class Autopilot:
         self.horizon_sec = horizon_sec
         self.enabled = False
         self.recent: list[str] = []
-        self.last_plan: Optional[dict] = None
+        self.last_plan: dict | None = None
 
-        self._planned_for: Optional[str] = None
-        self._thread: Optional[threading.Thread] = None
+        self._planned_for: str | None = None
+        self._thread: threading.Thread | None = None
         self._stop = threading.Event()
 
     def enable(self) -> None:
@@ -148,7 +149,7 @@ class Autopilot:
         try:
             self.handler.mixer.cancel_crossfade_ramp()
         except Exception:  # noqa: BLE001
-            pass
+            logger.debug("cancel_crossfade_ramp failed during override", exc_info=True)
         if clear_plan:
             self._planned_for = None
             if self.last_plan is not None:
@@ -186,7 +187,7 @@ class Autopilot:
         remaining_frames = max(0, len(state.audio) - state.position)
         return remaining_frames / float(sr)
 
-    def _analysis_for(self, path: Path) -> Optional[dict]:
+    def _analysis_for(self, path: Path) -> dict | None:
         cached = load_analysis(path)
         if cached is not None:
             return cached
@@ -196,7 +197,7 @@ class Autopilot:
             logger.warning("autopilot: failed to analyze %s", path, exc_info=True)
             return None
 
-    def _plan_next(self, active_path: str) -> Optional[dict]:
+    def _plan_next(self, active_path: str) -> dict | None:
         current_analysis = self._analysis_for(Path(active_path))
         if current_analysis is None:
             return None

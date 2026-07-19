@@ -7,6 +7,7 @@
     "dev": "tsx src/index.ts",
     "mcp": "tsx src/mcp-stdio.ts",
     "build": "tsc",
+    "typecheck": "tsc --noEmit",
     "start": "node dist/index.js",
     "smoke:auth": "tsx scripts/auth-smoke.ts",
     "smoke:sources": "tsx scripts/sources-smoke.ts",

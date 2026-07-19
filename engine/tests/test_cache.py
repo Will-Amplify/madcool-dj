@@ -1,7 +1,8 @@
-from pathlib import Path
 import time
-from madcool_dj_engine.cache import cache_key, load_analysis, save_analysis
+from pathlib import Path
+
 from madcool_dj_engine import ANALYZER_VERSION
+from madcool_dj_engine.cache import cache_key, load_analysis, save_analysis
 
 
 def test_cache_key_stable(tmp_path: Path):

@@ -11,9 +11,11 @@ Two modes (env ``DJ_AUDIO_MODE`` or ``device.setMode``):
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 
@@ -21,16 +23,19 @@ MODE_SHARED = "shared"
 MODE_EXCLUSIVE = "exclusive"
 _VALID_MODES = frozenset({MODE_SHARED, MODE_EXCLUSIVE})
 
+logger = logging.getLogger(__name__)
+
 _stream: Any = None
-_callback: Optional[Callable[[int], np.ndarray]] = None
+_callback: Callable[[int], np.ndarray] | None = None
 _sr: int = 44100
 _blocksize: int = 1024
 _mode: str = (os.environ.get("DJ_AUDIO_MODE") or MODE_SHARED).strip().lower()
 if _mode not in _VALID_MODES:
     _mode = MODE_SHARED
-_device_index: Optional[int] = None
+_device_index: int | None = None
 _device_name: str = ""
 _hostapi_name: str = ""
+_callback_errors = 0
 
 
 def get_mode() -> str:
@@ -71,7 +76,7 @@ def claim_default_sink() -> None:
         pass
 
 
-def pick_output_device(sd: Any) -> tuple[Optional[int], str, str]:
+def pick_output_device(sd: Any) -> tuple[int | None, str, str]:
     """Choose an output device for the current mode.
 
     Returns (device_index_or_None_for_default, device_name, hostapi_name).
@@ -124,6 +129,7 @@ def start_stream(
     _hostapi_name = hostapi
 
     def _sd_callback(outdata, frames, time_info, status):  # noqa: ANN001
+        global _callback_errors
         if _callback is None:
             outdata.fill(0)
             return
@@ -131,6 +137,10 @@ def start_stream(
             outdata[:] = _callback(frames)
         except Exception:
             outdata.fill(0)
+            _callback_errors += 1
+            # Rate-limit: realtime callback must stay quiet after first failures.
+            if _callback_errors <= 3 or _callback_errors % 1000 == 0:
+                logger.exception("mix callback failed (%d)", _callback_errors)
 
     kwargs: dict[str, Any] = {
         "samplerate": sr,
@@ -157,7 +167,7 @@ def stop_stream() -> bool:
         _stream.stop()
         _stream.close()
     except Exception:
-        pass
+        logger.warning("stop_stream failed", exc_info=True)
     _stream = None
     return True
 

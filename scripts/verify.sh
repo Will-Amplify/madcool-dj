@@ -10,6 +10,30 @@ fail() { echo "✗ $*" >&2; exit 1; }
 
 echo "=== MadCool DJ verify ==="
 
+# --- Lint / typecheck ---
+echo
+echo "--> engine ruff"
+(
+  cd "$ROOT/engine"
+  # shellcheck disable=SC1091
+  source .venv/bin/activate
+  if ! command -v ruff >/dev/null 2>&1; then
+    pip install -q 'ruff>=0.8'
+  fi
+  ruff check src tests
+) || fail "engine ruff"
+pass "engine ruff"
+
+echo
+echo "--> control typecheck"
+(cd "$ROOT/control" && npm run typecheck) || fail "control typecheck"
+pass "control typecheck"
+
+echo
+echo "--> dashboard typecheck"
+(cd "$ROOT/dashboard" && npm run typecheck) || fail "dashboard typecheck"
+pass "dashboard typecheck"
+
 # --- Engine ---
 echo
 echo "--> engine pytest"

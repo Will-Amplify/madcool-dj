@@ -12,7 +12,6 @@ from madcool_dj_engine.mixer import DualDeckMixer
 from madcool_dj_engine.sequencer import StepSequencer
 from madcool_dj_engine.synth import WobbleSynth
 
-
 FIXTURE_KIT = Path(__file__).resolve().parents[2] / "fixtures" / "dubstep"
 
 

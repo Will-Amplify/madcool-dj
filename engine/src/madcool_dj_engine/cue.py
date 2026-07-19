@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 
 def pick_intro_cue_sec(
-    analysis: Optional[dict[str, Any]],
+    analysis: dict[str, Any] | None,
     *,
     prefer_after_sec: float = 0.4,
     search_window_sec: float = 32.0,

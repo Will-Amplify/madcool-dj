@@ -1,7 +1,8 @@
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
+
 from madcool_dj_engine import ANALYZER_VERSION
 
 
@@ -18,7 +19,7 @@ def cache_key(path: Path) -> str:
     return hashlib.sha1(raw.encode()).hexdigest()
 
 
-def load_analysis(path: Path) -> Optional[dict[str, Any]]:
+def load_analysis(path: Path) -> dict[str, Any] | None:
     fp = cache_dir() / f"{cache_key(path)}.json"
     if not fp.exists():
         return None

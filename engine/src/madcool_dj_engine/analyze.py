@@ -8,15 +8,17 @@ everything O(n) over a modest hop size.
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
 from madcool_dj_engine.cache import load_analysis, save_analysis
+
+logger = logging.getLogger(__name__)
 
 SAMPLE_RATE = 22050
 HOP = 512
@@ -37,7 +39,7 @@ BPM_MAX = 180.0
 ACOUSTID_FINGERPRINT_SECONDS = 120.0
 
 
-def decode_mono_22k(path: Path, max_seconds: Optional[float] = None) -> tuple[np.ndarray, int]:
+def decode_mono_22k(path: Path, max_seconds: float | None = None) -> tuple[np.ndarray, int]:
     """Decode any ffmpeg-readable audio file to float32 mono @ 22050 Hz."""
     path = Path(path)
     cmd = [
@@ -62,8 +64,7 @@ def decode_mono_22k(path: Path, max_seconds: Optional[float] = None) -> tuple[np
     ]
     proc = subprocess.run(
         cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         check=True,
         timeout=120,
     )
@@ -226,8 +227,7 @@ def _maybe_fingerprint(path: Path) -> dict:
     try:
         proc = subprocess.run(
             [fpcalc, "-length", str(int(ACOUSTID_FINGERPRINT_SECONDS)), "-json", str(path)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             check=True,
             timeout=30,
         )
@@ -269,6 +269,7 @@ def _maybe_fingerprint(path: Path) -> dict:
                     return out
         return {}
     except Exception:
+        logger.debug("AcoustID lookup failed for %s", path, exc_info=True)
         return {}
 
 

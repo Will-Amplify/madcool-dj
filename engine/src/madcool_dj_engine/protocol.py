@@ -14,8 +14,9 @@ import logging
 import os
 import socket
 import threading
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +35,12 @@ class EngineProtocolServer:
         self.sock_path = str(sock_path)
         self.dispatch = dispatch
         self.emit_hello = emit_hello
-        self._server: Optional[socket.socket] = None
+        self._server: socket.socket | None = None
         self._clients: list[tuple[socket.socket, threading.Lock]] = []
         self._clients_lock = threading.Lock()
         self._dispatch_lock = threading.Lock()
         self._stop = threading.Event()
-        self._accept_thread: Optional[threading.Thread] = None
+        self._accept_thread: threading.Thread | None = None
 
     def start(self) -> None:
         """Bind and start accepting clients in a background thread."""
@@ -154,7 +155,7 @@ class EngineProtocolServer:
 
     def _drop_client(self, conn: socket.socket) -> None:
         with self._clients_lock:
-            self._clients = [(c, l) for c, l in self._clients if c is not conn]
+            self._clients = [(c, lock) for c, lock in self._clients if c is not conn]
         try:
             conn.close()
         except OSError:

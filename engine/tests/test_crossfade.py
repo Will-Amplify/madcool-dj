@@ -1,4 +1,5 @@
 import pytest
+
 from madcool_dj_engine.mixer import equal_power_gains
 
 

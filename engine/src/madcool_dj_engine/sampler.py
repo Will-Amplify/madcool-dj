@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
@@ -18,7 +17,7 @@ class PadSampler:
     def __init__(self, sr: int = 44100):
         self.sr = sr
         self.pads: dict[str, np.ndarray] = {}
-        self.kit_path: Optional[Path] = None
+        self.kit_path: Path | None = None
         self._voices: list[dict] = []  # {audio, pos, gain}
 
     def load_kit(self, root: Path) -> dict:

@@ -5,7 +5,6 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Tuple
 
 import numpy as np
 
@@ -13,7 +12,7 @@ from madcool_dj_engine.decode import load_stereo_44k
 from madcool_dj_engine.studio import StudioBus
 
 
-def equal_power_gains(x: float) -> Tuple[float, float]:
+def equal_power_gains(x: float) -> tuple[float, float]:
     """x in [0,1]: 0 = full A, 1 = full B."""
     x = 0.0 if x < 0 else 1.0 if x > 1 else float(x)
     a = math.cos(x * math.pi / 2)
@@ -62,7 +61,7 @@ class DualDeckMixer:
     def __init__(self, sr: int = 44100):
         self.sr = sr
         self.crossfade = 0.0
-        self.decks: dict[str, Optional[DeckState]] = {"a": None, "b": None}
+        self.decks: dict[str, DeckState | None] = {"a": None, "b": None}
         self.studio = StudioBus(sr)
         self.last_levels: dict[str, float] = {
             "peak_l": 0.0,
@@ -76,7 +75,7 @@ class DualDeckMixer:
         self._eq_a_lp = math.exp(-2.0 * math.pi * 200.0 / sr)
         self._eq_a_hp = math.exp(-2.0 * math.pi * 2000.0 / sr)
 
-    def _deck(self, deck: str) -> Optional[DeckState]:
+    def _deck(self, deck: str) -> DeckState | None:
         if deck not in self.decks:
             raise ValueError(f"unknown deck: {deck!r} (expected 'a' or 'b')")
         return self.decks[deck]

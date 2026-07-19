@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable, Optional
 
 
 def _clamp(x: float, lo: float, hi: float) -> float:
@@ -25,9 +25,9 @@ class StepSequencer:
     bass_notes: list[int] = field(default_factory=list)  # MIDI per step (0 = rest)
     swing: float = 0.0
     _phase_samples: float = 0.0
-    on_pad: Optional[Callable[[str, float], None]] = None
-    on_bass: Optional[Callable[[int, float], None]] = None
-    on_bass_off: Optional[Callable[[], None]] = None
+    on_pad: Callable[[str, float], None] | None = None
+    on_bass: Callable[[int, float], None] | None = None
+    on_bass_off: Callable[[], None] | None = None
 
     def __post_init__(self) -> None:
         defaults = {

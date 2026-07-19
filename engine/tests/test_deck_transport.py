@@ -23,8 +23,9 @@ def test_equal_power_endpoints_still_ok():
 def test_seek_and_jog(tmp_path):
     m = DualDeckMixer(sr=44100)
     # inject without ffmpeg
-    from madcool_dj_engine.mixer import DeckState
     from pathlib import Path
+
+    from madcool_dj_engine.mixer import DeckState
 
     audio = _tone()
     m.decks["a"] = DeckState(path=Path("tone.wav"), audio=audio)
@@ -35,8 +36,9 @@ def test_seek_and_jog(tmp_path):
 
 
 def test_cue_jumps_and_pauses():
-    from madcool_dj_engine.mixer import DeckState
     from pathlib import Path
+
+    from madcool_dj_engine.mixer import DeckState
 
     m = DualDeckMixer()
     audio = _tone()
@@ -48,8 +50,9 @@ def test_cue_jumps_and_pauses():
 
 
 def test_rate_advances_faster():
-    from madcool_dj_engine.mixer import DeckState
     from pathlib import Path
+
+    from madcool_dj_engine.mixer import DeckState
 
     m = DualDeckMixer()
     audio = _tone(sec=1.0)

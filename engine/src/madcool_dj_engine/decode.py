@@ -44,8 +44,7 @@ def load_stereo_44k(
     ]
     proc = subprocess.run(
         cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         check=True,
         timeout=90,
     )

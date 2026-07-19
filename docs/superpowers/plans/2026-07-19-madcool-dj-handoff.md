@@ -1,6 +1,6 @@
 # MadCool DJ — closeout & handoff (2026-07-19)
 
-**Status:** Closed on `master` @ `033ad3d` · remote synced · verify green  
+**Status:** Harden loop on `master` · verify green · ahead of origin (see `git log -1`)  
 **Host:** Tom · PipeWire shared with Roon on Simon  
 **Repo:** https://github.com/Will-Amplify/madcool-dj
 
@@ -8,7 +8,7 @@
 
 ## One-liner
 
-Dual-process local DJ: Python engine (mix/analyze/autopilot/studio) + TypeScript control (HTTP/WS/MCP/Roon/MiniMax) + Vite dashboard. Bones hardened; flesh live (VU, beatmatch, plan UI, keys).
+Dual-process local DJ: Python engine (mix/analyze/autopilot/studio) + TypeScript control (HTTP/WS/MCP/Roon/MiniMax) + Vite dashboard. Bones hardened; flesh live (VU, beatmatch, plan UI, keys). Dashboard modularized; verify gate includes ruff + typecheck.
 
 ---
 
@@ -45,8 +45,8 @@ Shared audio with Roon:
 |-------|------|
 | `engine/` | Decks, EQ, FX, studio, analyze cache, autopilot, path jail, `levels` telemetry |
 | `control/` | `:8787` HTTP + `/v1/live` WS + MCP + Roon + MiniMax bus |
-| `dashboard/` | Dual decks, Files, Roon, Studio, Music Gen, VU, plan card |
-| `scripts/verify.sh` | pytest → builds → control smokes → e2e |
+| `dashboard/` | Dual decks, Files, Roon, Studio, Music Gen, VU, plan card (`src/{main,studio,musicGen,roonUi,…}.ts`) |
+| `scripts/verify.sh` | ruff → typecheck → pytest → builds → control smokes → e2e |
 
 **Keyboard:** A/B focus · Space play/pause · ←/→ crossfade · Q cue
 
@@ -77,13 +77,12 @@ Autopilot: BPM ±6% pick → intro cue → rate ±3% → mid snap → ramp. Manu
 
 ---
 
-## Verify receipt (closeout)
+## Verify receipt (harden loop)
 
 ```bash
 ./scripts/verify.sh
-# 2026-07-19 closeout: ALL GREEN
-# 56 pytest · control/dashboard build · auth/sources/roon/mcp · e2e PASS
-# e2e: health · scan=2 · deck A playing clip_a · autopilot · browse=2 · studio · xfade-to · music.status
+# 2026-07-19 harden loop: ALL GREEN
+# ruff · control/dashboard typecheck · 56 pytest · builds · auth/sources/roon/mcp · e2e PASS
 ```
 
 ---
@@ -108,6 +107,7 @@ Spotify/Tidal PCM · stems · Roon as mix output · cloud ML beyond MiniMax gen
 |-----|------|
 | This file | Closeout / next-agent fast path |
 | `docs/superpowers/specs/2026-07-18-madcool-dj-design.md` | Locked design |
+| `docs/superpowers/plans/2026-07-19-madcool-dj-harden-loop.md` | Lint / split / logging plan |
 | `docs/superpowers/plans/2026-07-18-madcool-dj.md` | Original impl plan (historical) |
 | `docs/superpowers/plans/2026-07-18-madcool-dj-e2e-notes.md` | Early e2e sandbox notes |
 | `README.md` | Runbook |

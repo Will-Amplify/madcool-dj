@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ class Telemetry:
         self.broadcast = broadcast
         self.interval = 1.0 / max(1.0, hz)
         self._stop = threading.Event()
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():

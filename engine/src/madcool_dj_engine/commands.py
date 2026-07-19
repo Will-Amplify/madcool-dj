@@ -4,9 +4,11 @@ analyzer, the autopilot planner, and a simple in-memory library index.
 
 from __future__ import annotations
 
+import logging
 import os
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 from madcool_dj_engine import __version__
 from madcool_dj_engine.analyze import analyze_file
@@ -28,6 +30,7 @@ from madcool_dj_engine.telemetry import Telemetry
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_LIBRARY_ROOT = _REPO_ROOT / "fixtures" / "clips"
+logger = logging.getLogger(__name__)
 
 
 class CommandError(Exception):
@@ -35,7 +38,7 @@ class CommandError(Exception):
 
 
 class EngineCommandHandler:
-    def __init__(self, mixer: Optional[DualDeckMixer] = None, broadcast: Optional[Callable[[str, dict], None]] = None):
+    def __init__(self, mixer: DualDeckMixer | None = None, broadcast: Callable[[str, dict], None] | None = None):
         self.mixer = mixer if mixer is not None else DualDeckMixer()
         self.broadcast = broadcast or (lambda event, data: None)
         self.library_index: list[dict[str, Any]] = []
@@ -45,7 +48,7 @@ class EngineCommandHandler:
         try:
             self.mixer.studio.load_default_kit()
         except Exception:
-            pass
+            logger.debug("default dubstep kit not loaded", exc_info=True)
 
         self._commands: dict[str, Callable[[dict], Any]] = {
             "status": self._status,
@@ -153,6 +156,7 @@ class EngineCommandHandler:
             active = True
         except Exception:
             # Stream may not have been started yet (--play never passed); claim still helps.
+            logger.warning("device.claim: stream restart skipped", exc_info=True)
             active = stream_active()
         info = audio_info()
         info["claimed"] = True
@@ -218,6 +222,7 @@ class EngineCommandHandler:
         try:
             summary["waveform"] = self.mixer.waveform(deck, bins=bins)
         except Exception:
+            logger.warning("deck.load: waveform failed for deck %s", deck, exc_info=True)
             summary["waveform"] = []
         cached = load_analysis(path) if path.exists() else None
         if cached:

@@ -15,7 +15,6 @@ from madcool_dj_engine.fx import FILTER_BYPASS_HZ, MasterFX
 from madcool_dj_engine.mixer import DualDeckMixer
 from madcool_dj_engine.paths import resolve_under_allowlist
 
-
 FIXTURE_CLIPS = Path(__file__).resolve().parents[2] / "fixtures" / "clips"
 
 
